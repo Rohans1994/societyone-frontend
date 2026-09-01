@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SocietyOne Smart Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#f0f9ff',
+                100: '#e0f2fe',
+                500: '#0ea5e9',
+                600: '#0284c7',
+                700: '#0369a1',
+                900: '#0c4a6e',
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      body { font-family: 'Inter', sans-serif; }
+      /* Hide scrollbar for Chrome, Safari and Opera */
+      .no-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+      /* Hide scrollbar for IE, Edge and Firefox */
+      .no-scrollbar {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;  /* Firefox */
+      }
+
+      /* Universally ensure light backgrounds and high-contrast dark text for all inputs, selects, and textareas */
+      input:not([type="file"]):not([type="checkbox"]):not([type="radio"]), 
+      select, 
+      textarea {
+          background-color: #ffffff !important;
+          color: #0f172a !important; /* high-contrast dark slate text */
+          border-color: #cbd5e1 !important; /* crisp slate-300 border */
+      }
+      
+      /* Ensure placeholder text is highly readable but distinctive */
+      input::placeholder, 
+      textarea::placeholder {
+          color: #64748b !important; /* slate-500 placeholder */
+      }
+
+      /* Style for inputs when selected or focused */
+      input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):focus, 
+      select:focus, 
+      textarea:focus {
+          border-color: #0284c7 !important; /* brand-600 focus ring color */
+          box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15) !important;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "jspdf": "https://esm.sh/jspdf@2.5.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-gray-50 text-slate-800 antialiased">
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
