@@ -1,18 +1,28 @@
 // Configurable API base URL for the separated SocietyOne backend service.
 //
 // The app's components/App.tsx call the backend using relative paths, e.g.
-// fetch('/api/users'). That works when a single server serves both the
-// frontend and API from the same origin. Now that frontend and backend are
-// separate services, those relative calls need to be redirected to the
-// backend's origin.
+// fetch('/api/users'). That works when a single server (or a single nginx
+// origin proxying /api/ to the backend) serves both the frontend and API
+// from the same origin — in that case, leave VITE_API_URL set to an empty
+// string so requests stay relative and nginx's own /api/ location handles
+// routing to the backend internally.
+//
+// If the frontend and backend are reachable on different origins/ports
+// (e.g. no nginx yet, each service bound directly to its own public port),
+// set VITE_API_URL to the backend's full origin, e.g. http://<ip>:8084.
+//
+// If VITE_API_URL is left completely unset (not present in .env at all),
+// this falls back to http://localhost:3001 for local development, where the
+// Vite dev server and the backend run on different ports.
 //
 // Rather than rewriting every one of the ~75 fetch('/api/...') call sites
 // across the app, we patch the global `fetch` once at startup (see
 // index.tsx) to prefix any request that starts with '/api' with
 // API_BASE_URL. Every existing call site keeps working unmodified.
-export const API_BASE_URL = (
-  (import.meta as any).env?.VITE_API_URL as string | undefined
-)?.replace(/\/$/, '') || 'http://localhost:3001';
+const rawApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+export const API_BASE_URL = rawApiUrl !== undefined
+  ? rawApiUrl.replace(/\/$/, '')
+  : 'http://localhost:3001';
 
 let patched = false;
 
