@@ -18,7 +18,12 @@
 // Rather than rewriting every one of the ~75 fetch('/api/...') call sites
 // across the app, we patch the global `fetch` once at startup (see
 // index.tsx) to prefix any request that starts with '/api' with
-// API_BASE_URL. Every existing call site keeps working unmodified.
+// API_BASE_URL, AND to attach the current Supabase session's access token as
+// `Authorization: Bearer <token>` — the backend now requires this on most
+// routes (see societyone-backend/src/middleware/auth.ts). Every existing
+// call site keeps working unmodified; requests made while signed out simply
+// go out without an Authorization header, and the backend rejects those that
+// require one with 401.
 const rawApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
 export const API_BASE_URL = rawApiUrl !== undefined
   ? rawApiUrl.replace(/\/$/, '')
@@ -26,9 +31,22 @@ export const API_BASE_URL = rawApiUrl !== undefined
 
 let patched = false;
 
+async function withAuthHeader(init?: RequestInit): Promise<RequestInit | undefined> {
+  // Imported lazily (not at module top-level) to avoid a circular import,
+  // since supabaseClient.ts doesn't depend on this file.
+  const { getAccessToken } = await import('./supabaseClient');
+  const token = await getAccessToken();
+  if (!token) return init;
+
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+  return { ...init, headers };
+}
+
 /**
- * Rewrites relative `/api/...` fetch calls to point at API_BASE_URL.
- * Safe to call multiple times; only patches `window.fetch` once.
+ * Rewrites relative `/api/...` fetch calls to point at API_BASE_URL and
+ * attaches the current auth token. Safe to call multiple times; only patches
+ * `window.fetch` once.
  */
 export function installApiBaseUrlFetchPatch() {
   if (patched || typeof window === 'undefined') return;
@@ -36,15 +54,23 @@ export function installApiBaseUrlFetchPatch() {
 
   const originalFetch = window.fetch.bind(window);
 
-  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (typeof input === 'string' && input.startsWith('/api')) {
-      return originalFetch(API_BASE_URL + input, init);
+      return originalFetch(API_BASE_URL + input, await withAuthHeader(init));
     }
     if (input instanceof URL && input.pathname.startsWith('/api') && !input.host) {
-      return originalFetch(API_BASE_URL + input.pathname + input.search, init);
+      return originalFetch(API_BASE_URL + input.pathname + input.search, await withAuthHeader(init));
     }
     if (input instanceof Request && input.url.startsWith('/api')) {
-      return originalFetch(new Request(API_BASE_URL + input.url, input));
+      const authedInit = await withAuthHeader({
+        method: input.method,
+        headers: input.headers,
+        body: input.body,
+        credentials: input.credentials,
+        mode: input.mode,
+        redirect: input.redirect
+      });
+      return originalFetch(new Request(API_BASE_URL + input.url, authedInit));
     }
     return originalFetch(input, init);
   }) as typeof window.fetch;

@@ -19,6 +19,7 @@ import { TendorManagement } from './components/TendorManagement';
 import { AmenitiesManager } from './components/AmenitiesManager';
 import { ResidentMaintenanceView } from './components/ResidentMaintenanceView';
 import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt } from './types';
+import { supabase } from './supabaseClient';
 import { 
   MOCK_SOCIETIES,
   MOCK_USERS,
@@ -61,11 +62,75 @@ const App: React.FC = () => {
   const [amcs, setAmcs] = useState<AMC[]>(MOCK_AMCS);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
 
-  // Load all remote database records on initial load and refresh
+  // Whether we've finished checking for an existing Supabase session on
+  // mount (so we don't briefly flash the login screen before that check
+  // resolves on a page refresh where the user was already signed in).
+  const [sessionChecked, setSessionChecked] = useState(false);
+
+  // Societies are needed pre-login (the Auth screen's society picker), so
+  // they're fetched publicly and separately from everything else below.
+  const fetchSocieties = useCallback(async () => {
+    try {
+      const res = await fetch('/api/societies');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setSocieties(data);
+      }
+    } catch (err) {
+      console.error('Failed to load societies from database:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSocieties();
+  }, [fetchSocieties]);
+
+  // Restore session on page load/refresh: if a Supabase session already
+  // exists, fetch this account's profile and re-establish currentUser so a
+  // refresh doesn't force a fresh login every time.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          const res = await fetch('/api/users/me');
+          if (res.ok) {
+            const profile = await res.json();
+            setCurrentUser({
+              uid: profile.uid,
+              name: profile.name,
+              email: profile.email,
+              phone: profile.phone,
+              avatarUrl: profile.avatarUrl,
+              role: profile.role,
+              wing: profile.wing,
+              apartmentNo: profile.apartmentNo,
+              societyId: profile.societyId,
+              societyName: profile.societyName,
+              adminApproved: profile.adminApproved,
+              emailVerified: profile.emailVerified
+            });
+          } else {
+            // Session token is stale/invalid for our backend (e.g. profile
+            // deleted) — clear it so the login screen shows instead of a
+            // silently broken authenticated state.
+            await supabase.auth.signOut();
+          }
+        }
+      } catch (err) {
+        console.error('Failed to restore session:', err);
+      } finally {
+        setSessionChecked(true);
+      }
+    })();
+  }, []);
+
+  // Everything below requires a logged-in session (see middleware/auth.ts on
+  // the backend), so it's only fetched once currentUser is set — fetching it
+  // before login would just 401.
   const fetchAllData = useCallback(async () => {
     try {
       const [
-        societiesRes,
         usersRes,
         vendorsRes,
         tendorsRes,
@@ -82,7 +147,6 @@ const App: React.FC = () => {
         amcsRes,
         receiptsRes
       ] = await Promise.all([
-        fetch('/api/societies').then(r => r.json()).catch(() => null),
         fetch('/api/users').then(r => r.json()).catch(() => null),
         fetch('/api/vendors').then(r => r.json()).catch(() => null),
         fetch('/api/tendors').then(r => r.json()).catch(() => null),
@@ -99,10 +163,6 @@ const App: React.FC = () => {
         fetch('/api/amc').then(r => r.json()).catch(() => null),
         fetch('/api/receipts').then(r => r.json()).catch(() => null),
       ]);
-
-      if (Array.isArray(societiesRes)) {
-        setSocieties(societiesRes);
-      }
 
       if (Array.isArray(usersRes)) {
         setUsers(usersRes);
@@ -126,9 +186,12 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Only fetch protected data once we have a logged-in user.
   useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
+    if (currentUser) {
+      fetchAllData();
+    }
+  }, [currentUser, fetchAllData]);
 
   // When user changes, set the appropriate initial view
   useEffect(() => {
@@ -172,12 +235,12 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Sync society residents from Supabase when society ID changes
+  // Sync society residents from Supabase when society ID changes (requires login)
   useEffect(() => {
-    if (currentSocietyId) {
+    if (currentUser && currentSocietyId) {
       fetchSocietyResidents(currentSocietyId);
     }
-  }, [currentSocietyId, fetchSocietyResidents]);
+  }, [currentUser, currentSocietyId, fetchSocietyResidents]);
 
   // Filtered residents list for the active society (strictly from Supabase data matching society ID)
   const societyResidents = useMemo(() => {
@@ -348,6 +411,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    supabase.auth.signOut().catch((err) => console.error('Error signing out:', err));
     setCurrentUser(null);
     setCurrentView('FACILITIES');
   };
@@ -383,11 +447,18 @@ const App: React.FC = () => {
       societyName: user.societyName || currentUser?.societyName || activeSociety?.name || 'Arkade Earth'
     };
     try {
-      await fetch('/api/users', {
+      const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userToSave)
       });
+      const data = await res.json().catch(() => null);
+      // This form doesn't collect a password, so the backend generates a
+      // temporary one — surface it so the admin can actually hand it to the
+      // new user (otherwise the account would be created with no way to sign in).
+      if (data?.generatedPassword) {
+        alert(`User created. Temporary password: ${data.generatedPassword}\n\nShare this with ${userToSave.name} — they should sign in and can reset it from their profile.`);
+      }
       setUsers(prev => {
         const filtered = prev.filter(u => u.uid !== userToSave.uid && u.email !== userToSave.email);
         return [...filtered, userToSave];
@@ -1027,6 +1098,16 @@ const App: React.FC = () => {
         return <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
     }
   };
+
+  // Avoid flashing the login screen while we're still checking for an
+  // existing Supabase session on page load/refresh.
+  if (!sessionChecked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (

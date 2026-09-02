@@ -3,6 +3,7 @@ import { Role, User, Society } from '../types';
 import { Building2, Mail, Lock, User as UserIcon, Home, ArrowRight, Search, ChevronDown, Check, Sparkles, MapPin, Hash, Plus, AlertCircle, CheckCircle2, Phone, ShieldCheck, KeyRound, RefreshCw, Send } from 'lucide-react';
 import { LanguageSelector } from './LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
+import { supabase } from '../supabaseClient';
 
 
 interface AuthProps {
@@ -126,50 +127,77 @@ export const Auth: React.FC<AuthProps> = ({
         return;
       }
 
-      // Check user in database
-      // 1. First priority: match email + password + societyId
-      const matchingUser = users.find(
-        u => u.email.toLowerCase() === email.trim().toLowerCase() && 
-             u.password === password &&
-             (!u.societyId || u.societyId === activeSociety.id)
-      );
+      // 1. Verify credentials against Supabase Auth (not the app's own database —
+      // passwords no longer live there).
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      });
 
-      if (matchingUser) {
-        // Level 1 Check: Email Verification
-        if (matchingUser.emailVerified === false) {
-          setError('Email verification required. Please verify your email with the 6-digit code sent to your inbox.');
-          setVerifyingEmailUser({
-            email: matchingUser.email,
-            uid: matchingUser.uid,
-            name: matchingUser.name
-          });
-          return;
-        }
-
-        // Level 2 Check: Admin Approval
-        if (matchingUser.adminApproved === false) {
-          setError('Level 1 (Email) verified! However, your account is still pending Level 2 (Admin Approval). Please wait for the society admin to approve your flat allocation.');
-          return;
-        }
-
-        // Ensure user has society info attached
-        const finalUser: User = {
-          ...matchingUser,
-          societyId: matchingUser.societyId || activeSociety.id,
-          societyName: matchingUser.societyName || activeSociety.name
-        };
-        onLogin(finalUser);
-      } else {
-        // Check if user exists under another society
-        const userInAnotherSociety = users.find(
-          u => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password
-        );
-        if (userInAnotherSociety && userInAnotherSociety.societyId !== activeSociety.id) {
-          setError(`This account belongs to another society (${userInAnotherSociety.societyName || 'different society'}). Please select that society to login.`);
-        } else {
-          setError('Invalid credentials. Check email, password, or selected society.');
-        }
+      if (authError) {
+        setError('Invalid credentials. Check email, password, or selected society.');
+        return;
       }
+
+      // 2. Now that we have a valid session, fetch this account's profile
+      // (role/society/approval status) from our own backend. apiClient.ts
+      // automatically attaches the session token to this request.
+      let profile: any;
+      try {
+        const profileRes = await fetch('/api/users/me');
+        if (!profileRes.ok) {
+          await supabase.auth.signOut();
+          setError('No profile found for this account. Contact your society administrator.');
+          return;
+        }
+        profile = await profileRes.json();
+      } catch (err) {
+        await supabase.auth.signOut();
+        setError('Network error while fetching your profile.');
+        return;
+      }
+
+      // Level 1 Check: Email Verification (the app's own OTP flow)
+      if (profile.emailVerified === false) {
+        await supabase.auth.signOut();
+        setError('Email verification required. Please verify your email with the 6-digit code sent to your inbox.');
+        setVerifyingEmailUser({
+          email: profile.email,
+          uid: profile.uid,
+          name: profile.name
+        });
+        return;
+      }
+
+      // Level 2 Check: Admin Approval
+      if (profile.adminApproved === false) {
+        await supabase.auth.signOut();
+        setError('Level 1 (Email) verified! However, your account is still pending Level 2 (Admin Approval). Please wait for the society admin to approve your flat allocation.');
+        return;
+      }
+
+      // This account belongs to a different society than the one selected on this screen
+      if (profile.societyId && profile.societyId !== activeSociety.id) {
+        await supabase.auth.signOut();
+        setError(`This account belongs to another society (${profile.societyName || 'different society'}). Please select that society to login.`);
+        return;
+      }
+
+      const finalUser: User = {
+        uid: profile.uid,
+        name: profile.name,
+        email: profile.email,
+        phone: profile.phone,
+        avatarUrl: profile.avatarUrl,
+        role: profile.role,
+        wing: profile.wing,
+        apartmentNo: profile.apartmentNo,
+        societyId: profile.societyId || activeSociety.id,
+        societyName: profile.societyName || activeSociety.name,
+        adminApproved: profile.adminApproved,
+        emailVerified: profile.emailVerified
+      };
+      onLogin(finalUser);
     } else {
       // Basic validation for resident signup
       if (!name.trim() || !email.trim() || !phone.trim() || !password.trim() || !apartment.trim()) {
