@@ -12,6 +12,10 @@ interface AMCManagerProps {
   amcs: AMC[];
   assets: Asset[];
   vendors?: Vendor[];
+  // Name of the active society's dedicated Storage bucket. Falls back to the
+  // legacy shared 'assets'/'amc' buckets if undefined (societies created
+  // before this feature, not yet backfilled).
+  storageBucket?: string;
   onAddAsset?: (asset: Asset) => void;
   onUpdateAsset?: (asset: Asset) => void;
   onAddAMC?: (amc: AMC) => void;
@@ -21,6 +25,7 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
   amcs: initialAMCs, 
   assets: initialAssets, 
   vendors = [],
+  storageBucket,
   onAddAsset,
   onUpdateAsset,
   onAddAMC
@@ -129,13 +134,15 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
 
         // Upload via the backend, which uses the Supabase service role key server-side
         // (bypasses Storage RLS entirely; the anon key is never involved in uploads).
+        // Uses the society's dedicated bucket with an assets/ folder if available,
+        // falling back to the legacy shared 'assets' bucket otherwise.
         const base64Data = await convertToBase64(warrantyFile);
         const uploadRes = await fetch('/api/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bucket: 'assets',
-            filename: warrantyFilename,
+            bucket: storageBucket || 'assets',
+            filename: storageBucket ? `assets/${warrantyFilename}` : warrantyFilename,
             contentBase64: base64Data,
             mimeType: 'application/pdf'
           })
@@ -417,8 +424,10 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
     const expiryDate = calculateExpiry(amcForm.startDate, Number(amcForm.durationValue), amcForm.durationUnit);
     const status = determineAMCStatus(expiryDate);
 
-    // Upload files to 'amc' bucket via the backend, which uses the Supabase service role
-    // key server-side (bypasses Storage RLS entirely; the anon key is never involved in uploads).
+    // Upload files via the backend, which uses the Supabase service role key
+    // server-side (bypasses Storage RLS entirely; the anon key is never
+    // involved in uploads). Uses the society's dedicated bucket with an amc/
+    // folder if available, falling back to the legacy shared 'amc' bucket.
     const uploadedUrls: string[] = [];
     for (const file of amcFiles) {
       try {
@@ -432,8 +441,8 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bucket: 'amc',
-            filename: amcFilename,
+            bucket: storageBucket || 'amc',
+            filename: storageBucket ? `amc/${amcFilename}` : amcFilename,
             contentBase64: base64Data,
             mimeType: 'application/pdf'
           })

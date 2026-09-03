@@ -17,6 +17,10 @@ export interface Society {
   adminPhone?: string;
   phone?: string;
   createdAt?: string;
+  // Name of this society's dedicated Supabase Storage bucket (tendor/amc/assets
+  // live in folders within it). Undefined for legacy societies not yet
+  // backfilled — uploads fall back to the old shared flat buckets in that case.
+  storageBucket?: string;
 }
 
 export interface User {

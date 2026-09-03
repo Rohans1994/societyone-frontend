@@ -363,28 +363,34 @@ const App: React.FC = () => {
   };
 
   const handleSocietyCreated = async (newSociety: Society, adminUser: User, autoLogin: boolean) => {
-    // 1. Save society in state
-    setSocieties(prev => {
-      if (prev.some(s => s.id === newSociety.id)) return prev;
-      return [newSociety, ...prev];
-    });
-
-    // 2. Persist society in Supabase PostgreSQL
+    // 1. Persist society in Supabase PostgreSQL — this also creates the
+    // society's dedicated Storage bucket server-side and returns its name.
+    let storageBucket: string | undefined;
     try {
-      await fetch('/api/societies', {
+      const res = await fetch('/api/societies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSociety)
       });
+      const data = await res.json().catch(() => null);
+      storageBucket = data?.storageBucket || undefined;
     } catch (err) {
       console.error('Error persisting new society in Supabase database:', err);
     }
 
+    const finalSociety: Society = { ...newSociety, storageBucket };
+
+    // 2. Save society in state (with its resolved storage bucket attached)
+    setSocieties(prev => {
+      if (prev.some(s => s.id === finalSociety.id)) return prev;
+      return [finalSociety, ...prev];
+    });
+
     // 3. Ensure admin user is linked to the new society ID
     const finalAdminUser: User = {
       ...adminUser,
-      societyId: newSociety.id,
-      societyName: newSociety.name
+      societyId: finalSociety.id,
+      societyName: finalSociety.name
     };
 
     // 4. Persist admin user in Supabase PostgreSQL
@@ -1008,6 +1014,7 @@ const App: React.FC = () => {
             amcs={societyAMCs} 
             assets={societyAssets} 
             vendors={societyVendors} 
+            storageBucket={activeSociety?.storageBucket}
             onAddAsset={handleAddAsset}
             onUpdateAsset={handleUpdateAsset}
             onAddAMC={handleAddAMC}
@@ -1079,7 +1086,7 @@ const App: React.FC = () => {
       case 'VENDORS':
         return isAdminOrSuper ? <VendorManagement vendors={societyVendors} onAddVendor={handleAddVendor} onUpdateVendor={handleUpdateVendor} onDeleteVendor={handleDeleteVendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
       case 'TENDORS':
-        return isAdminOrSuper ? <TendorManagement vendors={societyVendors} tendors={societyTendors} onAddTendor={handleAddTendor} onUpdateTendor={handleUpdateTendor} onDeleteTendor={handleDeleteTendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
+        return isAdminOrSuper ? <TendorManagement vendors={societyVendors} tendors={societyTendors} storageBucket={activeSociety?.storageBucket} onAddTendor={handleAddTendor} onUpdateTendor={handleUpdateTendor} onDeleteTendor={handleDeleteTendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
       case 'USER_MANAGEMENT':
         return isSuperAdmin ? (
           <UserManagement 

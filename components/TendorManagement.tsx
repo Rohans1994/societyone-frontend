@@ -19,6 +19,10 @@ const convertToBase64 = (file: File): Promise<string> => {
 interface TendorManagementProps {
     vendors: Vendor[];
     tendors: Tendor[];
+    // Name of the active society's dedicated Storage bucket. Falls back to
+    // the legacy shared 'tendor' bucket if undefined (societies created
+    // before this feature, not yet backfilled).
+    storageBucket?: string;
     onAddTendor: (tendor: Tendor) => void;
     onUpdateTendor: (tendor: Tendor) => void;
     onDeleteTendor: (id: string) => void;
@@ -35,6 +39,7 @@ interface QuotationRow {
 export const TendorManagement: React.FC<TendorManagementProps> = ({
     vendors,
     tendors,
+    storageBucket,
     onAddTendor,
     onUpdateTendor,
     onDeleteTendor
@@ -249,7 +254,9 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
                         pdfFilename += '.pdf';
                     }
 
-                    const storagePath = `${tendorName}/${pdfFilename}`;
+                    const storagePath = storageBucket
+                        ? `tendor/${tendorName}/${pdfFilename}`
+                        : `${tendorName}/${pdfFilename}`;
                     let uploadedUrl = row.pdfUrl;
 
                     try {
@@ -258,7 +265,7 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                bucket: 'tendor',
+                                bucket: storageBucket || 'tendor',
                                 filename: storagePath,
                                 contentBase64: base64Data,
                                 mimeType: 'application/pdf'
