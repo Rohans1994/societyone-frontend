@@ -193,6 +193,27 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
     if (!asset.warrantyPdfUrl) return;
     
     try {
+      // Files uploaded via /api/upload are served back from our own backend
+      // (apiClient.ts attaches the auth header automatically to /api/... calls).
+      // This avoids relying on a direct Supabase Storage client, whose ad-hoc
+      // session picks up the logged-in user's real auth token rather than a
+      // pure anon one. Only legacy URLs (from before this fix) fall through to
+      // the Supabase-client logic below.
+      if (asset.warrantyPdfUrl.startsWith('/api/')) {
+        const res = await fetch(asset.warrantyPdfUrl);
+        if (!res.ok) throw new Error('Failed to download file from backend');
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `Warranty_${asset.name}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
       // Extract the filename from the URL path
       let filename = '';
       if (asset.warrantyPdfUrl.includes('/assets/')) {
@@ -269,6 +290,27 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
     if (!url) return;
     
     try {
+      // Files uploaded via /api/upload are served back from our own backend
+      // (apiClient.ts attaches the auth header automatically to /api/... calls).
+      // This avoids relying on a direct Supabase Storage client, whose ad-hoc
+      // session picks up the logged-in user's real auth token rather than a
+      // pure anon one. Only legacy URLs (from before this fix) fall through to
+      // the Supabase-client logic below.
+      if (url.startsWith('/api/')) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to download file from backend');
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = suggestedFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
       // Extract the filename from the URL path
       let filename = '';
       if (url.includes('/amc/')) {

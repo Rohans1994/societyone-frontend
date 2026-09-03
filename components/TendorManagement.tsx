@@ -63,6 +63,28 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
                 return;
             }
 
+            // Files uploaded via /api/upload are served back from our own backend
+            // (apiClient.ts attaches the auth header automatically to /api/... calls).
+            // This avoids relying on a direct Supabase Storage client, whose ad-hoc
+            // session picks up the logged-in user's real auth token rather than a
+            // pure anon one, and the 'tendor' bucket has no matching RLS policy for
+            // either role. Only legacy URLs (from before this fix) fall through to
+            // the Supabase-client logic below.
+            if (url.startsWith('/api/')) {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Failed to download file from backend');
+                const blob = await res.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = suggestedFilename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(blobUrl);
+                return;
+            }
+
             // Extract the filename from the URL path
             let filename = '';
             if (url.includes('/tendor/')) {
@@ -211,31 +233,15 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
         setIsUploading(true);
         
         try {
-            // Fetch Supabase configuration dynamically from backend so we get correct keys
-            let activeSupabaseUrl = SUPABASE_URL;
-            let activeAnonKey = SUPABASE_ANON_KEY;
-            try {
-                const configRes = await fetch('/api/supabase-config');
-                if (configRes.ok) {
-                    const configData = await configRes.json();
-                    if (configData.supabaseUrl && typeof configData.supabaseUrl === 'string' && configData.supabaseUrl.trim() !== '') {
-                        activeSupabaseUrl = configData.supabaseUrl.trim();
-                    }
-                    if (configData.supabaseAnonKey && typeof configData.supabaseAnonKey === 'string' && configData.supabaseAnonKey.trim() !== '') {
-                        activeAnonKey = configData.supabaseAnonKey.trim();
-                    }
-                }
-            } catch (configErr) {
-                console.warn('Could not fetch Supabase config for tendor upload:', configErr);
-            }
-
-            const isValidJWT = activeAnonKey && activeAnonKey.split('.').length === 3;
-            let activeSupabase = null;
-            if (isValidJWT) {
-                activeSupabase = createClient(activeSupabaseUrl, activeAnonKey);
-            }
-
-            // Loop and upload documents for quotation rows with a selected file
+            // Upload via the backend, which uses the Supabase service role key
+            // server-side (bypasses Storage RLS entirely). A direct-to-Supabase
+            // client upload was tried here previously, but any ad-hoc client for
+            // this project picks up the current logged-in user's real auth
+            // session (Supabase persists sessions in localStorage keyed by
+            // project, shared across every createClient() call for that
+            // project) rather than a pure anon one, and the 'tendor' bucket has
+            // no RLS policy for either role — so it always failed and only
+            // "worked" via this same fallback anyway.
             const updatedRows = await Promise.all(quotationRows.map(async (row) => {
                 if (row.pdfFile) {
                     let pdfFilename = `${Date.now()}_${row.pdfFile.name}`;
@@ -247,64 +253,25 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
                     let uploadedUrl = row.pdfUrl;
 
                     try {
-                        if (activeSupabase) {
-                            // Direct Supabase storage upload using the same mechanism as AMC upload
-                            const { data, error: uploadErr } = await activeSupabase.storage
-                                .from('tendor')
-                                .upload(storagePath, row.pdfFile, {
-                                    upsert: true,
-                                    contentType: 'application/pdf'
-                                });
-
-                            if (uploadErr) {
-                                throw uploadErr;
-                            }
-
-                            // Retrieve public URL from Supabase storage
-                            const { data: publicUrlData } = activeSupabase.storage
-                                .from('tendor')
-                                .getPublicUrl(storagePath);
-
-                            uploadedUrl = publicUrlData?.publicUrl || `${activeSupabaseUrl}/storage/v1/object/public/tendor/${storagePath}`;
+                        const base64Data = await convertToBase64(row.pdfFile);
+                        const uploadRes = await fetch('/api/upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                bucket: 'tendor',
+                                filename: storagePath,
+                                contentBase64: base64Data,
+                                mimeType: 'application/pdf'
+                            })
+                        });
+                        if (uploadRes.ok) {
+                            const result = await uploadRes.json();
+                            uploadedUrl = result.url;
                         } else {
-                            // Fallback to local API upload if Supabase is not configured
-                            const base64Data = await convertToBase64(row.pdfFile);
-                            const uploadRes = await fetch('/api/upload', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    bucket: 'tendor',
-                                    filename: storagePath,
-                                    contentBase64: base64Data,
-                                    mimeType: 'application/pdf'
-                                })
-                            });
-                            if (uploadRes.ok) {
-                                const result = await uploadRes.json();
-                                uploadedUrl = result.url;
-                            }
+                            console.error('Tendor quotation file upload failed:', await uploadRes.text());
                         }
                     } catch (uploadErr) {
-                        console.error('Tendor quotation file upload failed directly, attempting local fallback:', uploadErr);
-                        try {
-                            const base64Data = await convertToBase64(row.pdfFile);
-                            const uploadRes = await fetch('/api/upload', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    bucket: 'tendor',
-                                    filename: storagePath,
-                                    contentBase64: base64Data,
-                                    mimeType: 'application/pdf'
-                                })
-                            });
-                            if (uploadRes.ok) {
-                                const result = await uploadRes.json();
-                                uploadedUrl = result.url;
-                            }
-                        } catch (fbErr) {
-                            console.error('Local upload fallback failed for tendor quotation:', fbErr);
-                        }
+                        console.error('Tendor quotation file upload failed:', uploadErr);
                     }
 
                     return {
