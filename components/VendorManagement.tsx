@@ -65,7 +65,29 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
         setIsModalOpen(true);
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
+        // Check whether this vendor is still referenced by any AMC contracts
+        // or tendor quotations first, and warn about it in the confirmation
+        // if so — those references are plain text (no foreign key), so they
+        // won't be automatically cleaned up or updated by this deletion.
+        try {
+            const res = await fetch(`/api/vendors/${id}/usage`);
+            if (res.ok) {
+                const { amcCount, quotationCount } = await res.json();
+                if (amcCount > 0 || quotationCount > 0) {
+                    const parts: string[] = [];
+                    if (amcCount > 0) parts.push(`${amcCount} AMC contract${amcCount > 1 ? 's' : ''}`);
+                    if (quotationCount > 0) parts.push(`${quotationCount} tendor quotation${quotationCount > 1 ? 's' : ''}`);
+                    if (confirm(`Warning: this vendor is still referenced by ${parts.join(' and ')}. Those references will not be updated automatically. Delete this vendor anyway?`)) {
+                        onDeleteVendor(id);
+                    }
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn('Could not check vendor usage before delete:', err);
+        }
+
         if (confirm('Are you sure you want to remove this vendor?')) {
             onDeleteVendor(id);
         }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AMC, Asset, Vendor } from '../types';
-import { AlertTriangle, CheckCircle, FileText, Clock, X, Plus, Calendar, IndianRupee, ShieldCheck, Search, Box, Layers, Settings, Edit, Upload, Paperclip, Download } from 'lucide-react';
+import { AlertTriangle, CheckCircle, FileText, Clock, X, Plus, Calendar, IndianRupee, ShieldCheck, Search, Box, Layers, Settings, Edit, Upload, Paperclip, Download, Trash2 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://cppybjxvxejeewdxmozl.supabase.co';
@@ -19,6 +19,8 @@ interface AMCManagerProps {
   onAddAsset?: (asset: Asset) => void;
   onUpdateAsset?: (asset: Asset) => void;
   onAddAMC?: (amc: AMC) => void;
+  onDeleteAsset?: (id: string) => void;
+  onDeleteAMC?: (id: string) => void;
 }
 
 export const AMCManager: React.FC<AMCManagerProps> = ({ 
@@ -28,12 +30,27 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
   storageBucket,
   onAddAsset,
   onUpdateAsset,
-  onAddAMC
+  onAddAMC,
+  onDeleteAsset,
+  onDeleteAMC
 }) => {
   const [activeTab, setActiveTab] = useState<'ASSETS' | 'AMC'>('ASSETS');
   
   const [amcs, setAmcs] = useState<AMC[]>(initialAMCs);
   const [assets, setAssets] = useState<Asset[]>(initialAssets);
+
+  // Shared delete-confirmation state for both Assets and AMC contracts.
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'asset' | 'amc'; id: string; label: string } | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (!deleteConfirm) return;
+    if (deleteConfirm.type === 'asset') {
+      onDeleteAsset?.(deleteConfirm.id);
+    } else {
+      onDeleteAMC?.(deleteConfirm.id);
+    }
+    setDeleteConfirm(null);
+  };
 
   useEffect(() => {
     setAmcs(initialAMCs);
@@ -541,16 +558,25 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
                     const activeAMC = getActiveAMCForAsset(asset.id);
                     return (
                         <div key={asset.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition relative group">
-                            {/* Update/Edit Button */}
-                            <button 
-                                onClick={() => setEditingAsset(asset)}
-                                className="absolute top-4 right-4 text-gray-400 hover:text-brand-600 hover:bg-brand-50 p-1.5 rounded-full transition"
-                                title="Update Asset Details"
-                            >
-                                <Edit className="w-4 h-4" />
-                            </button>
+                            {/* Update/Edit and Delete Buttons */}
+                            <div className="absolute top-4 right-4 flex items-center gap-1">
+                                <button 
+                                    onClick={() => setEditingAsset(asset)}
+                                    className="text-gray-400 hover:text-brand-600 hover:bg-brand-50 p-1.5 rounded-full transition"
+                                    title="Update Asset Details"
+                                >
+                                    <Edit className="w-4 h-4" />
+                                </button>
+                                <button 
+                                    onClick={() => setDeleteConfirm({ type: 'asset', id: asset.id, label: asset.name })}
+                                    className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-full transition"
+                                    title="Delete Asset"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
 
-                            <div className="flex justify-between items-start mb-4 pr-8">
+                            <div className="flex justify-between items-start mb-4 pr-16">
                                 <div className="bg-gray-100 p-2 rounded-lg">
                                     <Box className="w-6 h-6 text-gray-600" />
                                 </div>
@@ -685,11 +711,20 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
                     >
                         View Contract
                     </button>
-                    {amc.status !== 'Active' && (
-                        <button className="text-xs bg-white border border-gray-300 text-gray-700 px-2 py-1 rounded hover:bg-gray-50">
-                        Renew
+                    <div className="flex items-center gap-2">
+                        {amc.status !== 'Active' && (
+                            <button className="text-xs bg-white border border-gray-300 text-gray-700 px-2 py-1 rounded hover:bg-gray-50">
+                            Renew
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setDeleteConfirm({ type: 'amc', id: amc.id, label: `${amc.assetName} (${amc.vendorName})` })}
+                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-full transition"
+                            title="Delete AMC Contract"
+                        >
+                            <Trash2 className="w-4 h-4" />
                         </button>
-                    )}
+                    </div>
                     </div>
                 </div>
                 ))}
@@ -1253,6 +1288,41 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
                 className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium ml-2 shadow-sm"
               >
                 Download PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal (shared by Assets and AMC contracts) */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-gray-900">
+                Delete this {deleteConfirm.type === 'asset' ? 'Asset' : 'AMC Contract'}?
+              </h4>
+              <p className="text-xs text-gray-500 mt-1">
+                Are you sure you want to remove <strong>{deleteConfirm.label}</strong>? Any uploaded {deleteConfirm.type === 'asset' ? 'warranty card' : 'contract documents'} will also be permanently deleted. This cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+              >
+                Confirm Delete
               </button>
             </div>
           </div>

@@ -788,6 +788,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteAsset = async (id: string) => {
+    try {
+      await fetch(`/api/assets/${id}`, { method: 'DELETE' });
+      setAssets(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      console.error('Error deleting asset from database:', err);
+    }
+  };
+
+  const handleDeleteAMC = async (id: string) => {
+    try {
+      await fetch(`/api/amc/${id}`, { method: 'DELETE' });
+      setAmcs(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      console.error('Error deleting AMC from database:', err);
+    }
+  };
+
   // Fish Bowl Management
   const handlePostFishBowlMessage = async (text: string, replyToId?: string) => {
     if (!currentUser) return;
@@ -1018,6 +1036,8 @@ const App: React.FC = () => {
             onAddAsset={handleAddAsset}
             onUpdateAsset={handleUpdateAsset}
             onAddAMC={handleAddAMC}
+            onDeleteAsset={handleDeleteAsset}
+            onDeleteAMC={handleDeleteAMC}
           />
         ) : (
           <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />

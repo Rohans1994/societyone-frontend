@@ -25,6 +25,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'APPROVED' | 'PENDING'>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
+
+  const handleConfirmDeleteUser = () => {
+    if (!deleteConfirmUser) return;
+    onDeleteUser(deleteConfirmUser.uid);
+    setDeleteConfirmUser(null);
+  };
   
   // New User Form State
   const [newUser, setNewUser] = useState({
@@ -168,7 +175,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     </button>
                   )}
                   <button
-                    onClick={() => onDeleteUser(user.uid)}
+                    onClick={() => setDeleteConfirmUser(user)}
                     className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
                     title="Decline / Remove Request"
                   >
@@ -325,7 +332,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button 
-                          onClick={() => onDeleteUser(user.uid)}
+                          onClick={() => setDeleteConfirmUser(user)}
                           className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-full transition"
                           title="Delete User"
                         >
@@ -408,6 +415,39 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 Create User (Auto-Approved)
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-gray-900">Remove this User?</h4>
+              <p className="text-xs text-gray-500 mt-1">
+                Are you sure you want to remove <strong>{deleteConfirmUser.name}</strong> ({deleteConfirmUser.email}) from {societyName || 'this society'}? Their profile picture (if uploaded) will also be deleted. This cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmUser(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteUser}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+              >
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
