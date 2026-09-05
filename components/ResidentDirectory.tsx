@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, Role } from '../types';
 import { WINGS } from '../constants';
 import { Search, Users, Shield, Home, Phone } from 'lucide-react';
+import { AuthedImg } from './AuthedImg';
 
 interface ResidentDirectoryProps {
   onOpenAI: () => void;
@@ -88,7 +89,7 @@ export const ResidentDirectory: React.FC<ResidentDirectoryProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredResidents.map(resident => (
             <div key={resident.uid} className="bg-white p-4 rounded-xl border border-gray-100 hover:shadow-md transition flex items-center gap-4">
-              <img 
+              <AuthedImg 
                 src={resident.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(resident.name)}&background=random`} 
                 alt={resident.name} 
                 className="w-12 h-12 rounded-full object-cover ring-2 ring-gray-100" 

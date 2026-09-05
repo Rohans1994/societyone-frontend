@@ -1,8 +1,9 @@
 import React from 'react';
-import { User, Invoice, Ticket, AMC, Event, Notice, ViewState } from '../types';
-import { TrendingUp, Users, AlertTriangle, Activity, Clock, ShieldAlert, ChevronRight, MapPin, UserCheck, Check, ArrowRight, BellRing, Megaphone } from 'lucide-react';
+import { User, Invoice, Ticket, AMC, Event, Notice, Booking, ViewState } from '../types';
+import { TrendingUp, Users, AlertTriangle, Activity, Clock, ShieldAlert, ChevronRight, MapPin, UserCheck, Check, ArrowRight, BellRing, Megaphone, IndianRupee, X } from 'lucide-react';
 import { formatCurrency } from '../constants';
 import { useLanguage } from '../context/LanguageContext';
+import { AuthedImg } from './AuthedImg';
 
 interface DashboardProps {
   user: User;
@@ -12,8 +13,11 @@ interface DashboardProps {
   events: Event[];
   notices?: Notice[];
   users?: User[];
+  bookings?: Booking[];
   onNavigate: (view: ViewState) => void;
   onApproveUser?: (uid: string) => void;
+  onConfirmBookingPayment?: (id: string) => void;
+  onCancelBooking?: (id: string) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ 
@@ -24,8 +28,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   events, 
   notices = [],
   users = [], 
+  bookings = [],
   onNavigate,
-  onApproveUser 
+  onApproveUser,
+  onConfirmBookingPayment,
+  onCancelBooking
 }) => {
   const { t } = useLanguage();
   const openTickets = tickets.filter(t => t.status !== 'Resolved').length;
@@ -36,6 +43,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Pending resident registrations for this society
   const pendingResidents = users.filter(u => u.adminApproved === false);
   const totalSocietyResidents = users.filter(u => u.adminApproved !== false).length;
+
+  // Facility bookings paid manually (QR/UPI/bank transfer, no live gateway)
+  // awaiting the facility manager's verification.
+  const pendingPaymentBookings = bookings.filter(b => b.status === 'Pending');
 
   // Get upcoming events, sort by date
   const upcomingEvents = events
@@ -96,7 +107,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-amber-100">
                     {resident.avatarUrl ? (
-                      <img src={resident.avatarUrl} alt={resident.name} className="w-full h-full object-cover" />
+                      <AuthedImg src={resident.avatarUrl} alt={resident.name} className="w-full h-full object-cover" />
                     ) : (
                       <Users className="w-5 h-5 text-brand-500" />
                     )}
@@ -118,6 +129,76 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer"
                   >
                     <Check className="w-4 h-4" /> {t('approve', 'Approve Resident')}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Facility Booking Payment Confirmations (Admin View Only) —
+          residents pay manually via QR/UPI/bank transfer since no live
+          payment gateway is integrated; the facility manager verifies here. */}
+      {pendingPaymentBookings.length > 0 && (
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50/60 border border-amber-300/80 rounded-2xl p-6 shadow-sm space-y-4 animate-in fade-in slide-in-from-top-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-amber-200/80">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-500 text-white rounded-xl flex items-center justify-center shadow-sm shrink-0">
+                <IndianRupee className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-base sm:text-lg flex items-center gap-2">
+                  Pending Payment Confirmations
+                  <span className="bg-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                    {pendingPaymentBookings.length} Awaiting
+                  </span>
+                </h3>
+                <p className="text-gray-600 text-xs mt-0.5">
+                  Confirm below once you've verified the resident's manual payment (QR/UPI/bank transfer) actually came through.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => onNavigate('AMENITIES')}
+              className="text-xs font-semibold text-amber-900 hover:text-amber-950 flex items-center gap-1.5 hover:underline bg-white px-3 py-1.5 rounded-lg border border-amber-200 shadow-2xs cursor-pointer"
+            >
+              Manage Amenities <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-1">
+            {pendingPaymentBookings.map(booking => (
+              <div
+                key={booking.id}
+                className="bg-white rounded-xl p-4 border border-amber-200/90 shadow-2xs hover:shadow-sm transition flex flex-col justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="font-bold text-gray-900 text-sm truncate">{booking.facilityName}</p>
+                  <p className="text-xs text-gray-500 truncate">{booking.residentName}</p>
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-brand-700 font-semibold flex-wrap">
+                    <span className="bg-brand-50 text-brand-700 px-2 py-0.5 rounded border border-brand-100 text-[11px]">
+                      {booking.date} • {booking.timeSlot}
+                    </span>
+                    <span className="bg-amber-50 text-amber-800 px-2 py-0.5 rounded border border-amber-100 text-[11px] font-bold">
+                      {formatCurrency(booking.amountPaid || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-gray-100 flex items-center gap-2">
+                  <button
+                    onClick={() => onConfirmBookingPayment && onConfirmBookingPayment(booking.id)}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" /> Confirm Payment
+                  </button>
+                  <button
+                    onClick={() => onCancelBooking && onCancelBooking(booking.id)}
+                    title="Reject / Cancel this booking"
+                    className="bg-white border border-gray-300 hover:bg-gray-100 text-gray-500 p-2 rounded-lg transition cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>

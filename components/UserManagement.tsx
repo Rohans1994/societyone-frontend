@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { User, Role } from '../types';
-import { Shield, User as UserIcon, CheckCircle, Search, Trash2, Plus, X, Home, Mail, Check, Clock, UserCheck, AlertCircle, Phone, CheckCircle2, ShieldCheck, KeyRound } from 'lucide-react';
+import { Shield, User as UserIcon, CheckCircle, Search, Trash2, Plus, X, Home, Mail, Check, Clock, UserCheck, AlertCircle, Phone, CheckCircle2, ShieldCheck, KeyRound, Upload } from 'lucide-react';
 import { WINGS } from '../constants';
+import { BulkImportModal, BulkImportSummary } from './BulkImportModal';
+import { AuthedImg } from './AuthedImg';
 
 interface UserManagementProps {
   users: User[];
@@ -11,6 +13,7 @@ interface UserManagementProps {
   onDeleteUser: (uid: string) => void;
   onAddUser: (user: User) => void;
   onApproveUser?: (uid: string) => void;
+  onBulkImportResidents?: (rows: Record<string, string>[]) => Promise<BulkImportSummary>;
 }
 
 export const UserManagement: React.FC<UserManagementProps> = ({ 
@@ -20,11 +23,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   onUpdateRole, 
   onDeleteUser, 
   onAddUser,
-  onApproveUser 
+  onApproveUser,
+  onBulkImportResidents
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'APPROVED' | 'PENDING'>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
 
   const handleConfirmDeleteUser = () => {
@@ -93,12 +98,22 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             Manage residents, review approval requests, assign roles, and maintain accounts for {societyName || 'this society'}.
           </p>
         </div>
-        <button 
-          onClick={() => setIsAddModalOpen(true)}
-          className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm"
-        >
-          <Plus className="w-4 h-4" /> Add User
-        </button>
+        <div className="flex items-center gap-2">
+          {onBulkImportResidents && (
+            <button
+              onClick={() => setIsBulkImportOpen(true)}
+              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm"
+            >
+              <Upload className="w-4 h-4" /> Bulk Import
+            </button>
+          )}
+          <button 
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> Add User
+          </button>
+        </div>
       </div>
 
       {/* Pending Resident Approval Requests Widget */}
@@ -132,7 +147,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center overflow-hidden shrink-0 ring-2 ring-amber-100">
                     {user.avatarUrl ? (
-                      <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                      <AuthedImg src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
                     ) : (
                       <UserIcon className="w-5 h-5" />
                     )}
@@ -253,7 +268,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden shrink-0">
                             {user.avatarUrl ? (
-                              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                      <AuthedImg src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
                             ) : (
                               <UserIcon className="w-4 h-4 text-gray-500" />
                             )}
@@ -450,6 +465,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bulk Import Modal */}
+      {onBulkImportResidents && (
+        <BulkImportModal
+          isOpen={isBulkImportOpen}
+          onClose={() => setIsBulkImportOpen(false)}
+          title="Bulk Import Residents"
+          description="Leave the password column blank to use the default temporary password 'Abcd@12345' for that resident — they can change it after logging in. Residents are auto-approved and auto-verified since an admin is adding them directly."
+          templateColumns={['name', 'email', 'phone', 'wing', 'apartmentNo', 'password']}
+          templateSampleRow={['Jane Doe', 'jane.doe@example.com', '9876543210', 'A', '101', '']}
+          onImport={onBulkImportResidents}
+        />
       )}
     </div>
   );

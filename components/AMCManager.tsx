@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AMC, Asset, Vendor } from '../types';
 import { AlertTriangle, CheckCircle, FileText, Clock, X, Plus, Calendar, IndianRupee, ShieldCheck, Search, Box, Layers, Settings, Edit, Upload, Paperclip, Download, Trash2 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
+import { BulkImportModal, BulkImportSummary } from './BulkImportModal';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://cppybjxvxejeewdxmozl.supabase.co';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -21,6 +22,7 @@ interface AMCManagerProps {
   onAddAMC?: (amc: AMC) => void;
   onDeleteAsset?: (id: string) => void;
   onDeleteAMC?: (id: string) => void;
+  onBulkImportAssets?: (rows: Record<string, string>[]) => Promise<BulkImportSummary>;
 }
 
 export const AMCManager: React.FC<AMCManagerProps> = ({ 
@@ -32,12 +34,14 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
   onUpdateAsset,
   onAddAMC,
   onDeleteAsset,
-  onDeleteAMC
+  onDeleteAMC,
+  onBulkImportAssets
 }) => {
   const [activeTab, setActiveTab] = useState<'ASSETS' | 'AMC'>('ASSETS');
   
   const [amcs, setAmcs] = useState<AMC[]>(initialAMCs);
   const [assets, setAssets] = useState<Asset[]>(initialAssets);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
 
   // Shared delete-confirmation state for both Assets and AMC contracts.
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'asset' | 'amc'; id: string; label: string } | null>(null);
@@ -545,6 +549,14 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500 outline-none"
                     />
                 </div>
+                {onBulkImportAssets && (
+                    <button
+                        onClick={() => setIsBulkImportOpen(true)}
+                        className="ml-4 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center gap-2"
+                    >
+                        <Upload className="w-4 h-4" /> Bulk Import
+                    </button>
+                )}
                 <button 
                     onClick={() => { setAssetUploadError(null); setIsAssetModalOpen(true); }}
                     className="ml-4 bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center gap-2"
@@ -1327,6 +1339,19 @@ export const AMCManager: React.FC<AMCManagerProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bulk Import Modal (Assets) */}
+      {onBulkImportAssets && (
+        <BulkImportModal
+          isOpen={isBulkImportOpen}
+          onClose={() => setIsBulkImportOpen(false)}
+          title="Bulk Import Assets"
+          description="Warranty cards and photos can't be attached via CSV — upload those individually afterward by editing each asset."
+          templateColumns={['name', 'category', 'location', 'purchaseDate', 'modelNo', 'status', 'description', 'hasWarranty']}
+          templateSampleRow={['Clubhouse HVAC', 'HVAC', 'Clubhouse Roof', '2024-01-15', 'TRANE-XR14', 'Operational', 'Main clubhouse AC unit', 'true']}
+          onImport={onBulkImportAssets}
+        />
       )}
     </div>
   );

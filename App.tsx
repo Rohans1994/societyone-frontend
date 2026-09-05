@@ -17,6 +17,7 @@ import { UserManagement } from './components/UserManagement';
 import { VendorManagement } from './components/VendorManagement';
 import { TendorManagement } from './components/TendorManagement';
 import { AmenitiesManager } from './components/AmenitiesManager';
+import { MyProfile } from './components/MyProfile';
 import { ResidentMaintenanceView } from './components/ResidentMaintenanceView';
 import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt } from './types';
 import { supabase } from './supabaseClient';
@@ -331,6 +332,14 @@ const App: React.FC = () => {
     setCurrentUser(user);
   };
 
+  // Called by MyProfile after a successful self-service name/avatar update,
+  // so the header and rest of the app reflect the change immediately without
+  // needing a full page refresh.
+  const handleProfileUpdated = (updates: Partial<User>) => {
+    setCurrentUser(prev => (prev ? { ...prev, ...updates } : prev));
+    setUsers(prev => prev.map(u => (u.uid === currentUser?.uid ? { ...u, ...updates } : u)));
+  };
+
   const handleRegister = async (newUser: User) => {
     const isApproved = newUser.adminApproved !== undefined ? newUser.adminApproved : (newUser.role === Role.Resident ? false : true);
     const isEmailVerified = newUser.emailVerified !== undefined ? newUser.emailVerified : (newUser.role === Role.Resident ? false : true);
@@ -472,6 +481,28 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Error adding user to database:', err);
     }
+  };
+
+  const handleBulkImportResidents = async (rows: Record<string, string>[]) => {
+    const res = await fetch('/api/users/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        residents: rows,
+        societyId: activeSociety?.id,
+        societyName: activeSociety?.name
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Bulk import failed');
+    }
+    const result = await res.json();
+    // Refresh the resident list so newly-imported users show up immediately.
+    if (activeSociety?.id) {
+      fetchSocietyResidents(activeSociety.id);
+    }
+    return result;
   };
 
   const handleApproveUser = async (uid: string) => {
@@ -647,6 +678,30 @@ const App: React.FC = () => {
     }
   };
 
+  const handleBulkImportVendors = async (rows: Record<string, string>[]) => {
+    const res = await fetch('/api/vendors/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vendors: rows, societyId: activeSociety?.id })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Bulk import failed');
+    }
+    const result = await res.json();
+    // Refresh the vendor list so newly-imported vendors show up immediately.
+    try {
+      const vendorsRes = await fetch(`/api/vendors?societyId=${encodeURIComponent(activeSociety?.id || '')}`);
+      if (vendorsRes.ok) {
+        const data = await vendorsRes.json();
+        if (Array.isArray(data)) setVendors(data);
+      }
+    } catch (err) {
+      console.error('Error refreshing vendors after bulk import:', err);
+    }
+    return result;
+  };
+
   const handleUpdateVendor = async (updatedVendor: Vendor) => {
     try {
       await fetch(`/api/vendors/${updatedVendor.id}`, {
@@ -756,6 +811,30 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Error adding asset to database:', err);
     }
+  };
+
+  const handleBulkImportAssets = async (rows: Record<string, string>[]) => {
+    const res = await fetch('/api/assets/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assets: rows, societyId: activeSociety?.id })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Bulk import failed');
+    }
+    const result = await res.json();
+    // Refresh the asset list so newly-imported assets show up immediately.
+    try {
+      const assetsRes = await fetch(`/api/assets?societyId=${encodeURIComponent(activeSociety?.id || '')}`);
+      if (assetsRes.ok) {
+        const data = await assetsRes.json();
+        if (Array.isArray(data)) setAssets(data);
+      }
+    } catch (err) {
+      console.error('Error refreshing assets after bulk import:', err);
+    }
+    return result;
   };
 
   const handleUpdateAsset = async (updatedAsset: Asset) => {
@@ -965,6 +1044,28 @@ const App: React.FC = () => {
     }
   };
 
+  // Facility manager verifies a resident's self-declared manual payment
+  // (QR/UPI/bank transfer) and confirms the booking — mirrors handleApproveUser.
+  const handleConfirmBookingPayment = async (id: string) => {
+    try {
+      const res = await fetch(`/api/bookings/${id}/confirm-payment`, { method: 'PUT' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.booking) {
+        setBookings(prev => prev.map(b => (b.id === id ? data.booking : b)));
+        // Payment just got verified — refresh transactions so Finance reflects it.
+        fetch('/api/transactions')
+          .then(r => r.json())
+          .then(txData => {
+            if (Array.isArray(txData)) setTransactions(txData);
+          })
+          .catch(() => {});
+      }
+    } catch (err) {
+      console.error('Error confirming booking payment:', err);
+    }
+  };
+
   const renderView = () => {
     if (!currentUser) return null;
 
@@ -983,6 +1084,8 @@ const App: React.FC = () => {
             onPaymentSuccess={handlePaymentSuccess}
           />
         );
+      case 'MY_PROFILE':
+        return <MyProfile user={currentUser} onProfileUpdated={handleProfileUpdated} />;
       case 'DASHBOARD':
         return isAdminOrSuper ? (
           <Dashboard 
@@ -993,7 +1096,10 @@ const App: React.FC = () => {
             events={societyEvents} 
             notices={societyNotices}
             users={societyResidents}
+            bookings={societyBookings}
             onApproveUser={handleApproveUser}
+            onConfirmBookingPayment={handleConfirmBookingPayment}
+            onCancelBooking={handleCancelBooking}
             onNavigate={setCurrentView} 
           />
         ) : (
@@ -1007,6 +1113,7 @@ const App: React.FC = () => {
             facilities={societyFacilities}
             facilityBlocks={societyFacilityBlocks}
             societyName={activeSociety?.name}
+            storageBucket={activeSociety?.storageBucket}
             userRole={currentUser.role}
             onAddFacility={handleAddFacility}
             onUpdateFacility={handleUpdateFacility}
@@ -1038,6 +1145,7 @@ const App: React.FC = () => {
             onAddAMC={handleAddAMC}
             onDeleteAsset={handleDeleteAsset}
             onDeleteAMC={handleDeleteAMC}
+            onBulkImportAssets={handleBulkImportAssets}
           />
         ) : (
           <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
@@ -1104,7 +1212,7 @@ const App: React.FC = () => {
       case 'FISHBOWL':
         return <FishBowl messages={societyFishbowl} currentUser={currentUser} onPostMessage={handlePostFishBowlMessage} onDeleteMessage={handleDeleteFishBowlMessage} />;
       case 'VENDORS':
-        return isAdminOrSuper ? <VendorManagement vendors={societyVendors} onAddVendor={handleAddVendor} onUpdateVendor={handleUpdateVendor} onDeleteVendor={handleDeleteVendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
+        return isAdminOrSuper ? <VendorManagement vendors={societyVendors} onAddVendor={handleAddVendor} onUpdateVendor={handleUpdateVendor} onDeleteVendor={handleDeleteVendor} onBulkImportVendors={handleBulkImportVendors} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
       case 'TENDORS':
         return isAdminOrSuper ? <TendorManagement vendors={societyVendors} tendors={societyTendors} storageBucket={activeSociety?.storageBucket} onAddTendor={handleAddTendor} onUpdateTendor={handleUpdateTendor} onDeleteTendor={handleDeleteTendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
       case 'USER_MANAGEMENT':
@@ -1117,6 +1225,7 @@ const App: React.FC = () => {
             onDeleteUser={handleDeleteUser} 
             onAddUser={handleAddUser} 
             onApproveUser={handleApproveUser}
+            onBulkImportResidents={handleBulkImportResidents}
           />
         ) : (
           <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
@@ -1155,6 +1264,7 @@ const App: React.FC = () => {
         onChangeView={setCurrentView}
         userRole={currentUser.role}
         userName={currentUser.name}
+        userAvatarUrl={currentUser.avatarUrl}
         societyName={activeSociety?.name}
         societyPincode={activeSociety?.pincode}
         onLogout={handleLogout}

@@ -86,18 +86,34 @@ export interface AMC {
   societyId?: string;
 }
 
+// Up to this many discrete booking slots may be defined per amenity.
+export const MAX_FACILITY_SLOTS = 4;
+
+export interface FacilitySlot {
+  startTime: string;
+  endTime: string;
+}
+
 export interface Facility {
   id: string;
   name: string;
   description?: string;
   capacity: number;
-  openTime: string;
-  closeTime: string;
+  // Up to 4 admin-defined booking slots (e.g. a morning slot and an evening
+  // slot), each with its own start/end time. Residents pick one of these
+  // slots directly when booking — see FacilityBooking.tsx.
+  slots: FacilitySlot[];
   imageUrl: string;
   images?: string[];
   canBook?: boolean; // ability to book as a check box
   requiresPayment?: boolean; // Payment checkbox
   price?: number; // Price/Fee per slot if payment is required
+  // Payment collection details, all optional — an admin may offer any
+  // combination of these (only shown/editable when requiresPayment is true)
+  paymentQrUrl?: string;
+  upiId?: string;
+  bankAccountNumber?: string;
+  bankIfscCode?: string;
   rules?: string;
   societyId?: string;
 }
@@ -293,4 +309,4 @@ export interface Tendor {
   societyId?: string;
 }
 
-export type ViewState = 'DASHBOARD' | 'RESIDENT_DASHBOARD' | 'AMC' | 'RESIDENTS' | 'FACILITIES' | 'AMENITIES' | 'FINANCE' | 'INVOICES_FULL' | 'HELPDESK' | 'SECURITY' | 'USER_MANAGEMENT' | 'EVENTS' | 'VENDORS' | 'FISHBOWL' | 'TENDORS' | 'MAINTENANCE';
+export type ViewState = 'DASHBOARD' | 'RESIDENT_DASHBOARD' | 'AMC' | 'RESIDENTS' | 'FACILITIES' | 'AMENITIES' | 'FINANCE' | 'INVOICES_FULL' | 'HELPDESK' | 'SECURITY' | 'USER_MANAGEMENT' | 'EVENTS' | 'VENDORS' | 'FISHBOWL' | 'TENDORS' | 'MAINTENANCE' | 'MY_PROFILE';

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Invoice, Receipt, User } from '../types';
-import { formatCurrency } from '../constants';
+import { formatCurrency, isResidentInvoiceMatch } from '../constants';
 import { ReceiptModal } from './ReceiptModal';
 import { PaymentModal } from './PaymentModal';
 import { InvoiceDetailModal } from './InvoiceDetailModal';
@@ -55,24 +55,9 @@ export const ResidentMaintenanceView: React.FC<ResidentMaintenanceViewProps> = (
   const [selectedReceiptForView, setSelectedReceiptForView] = useState<Receipt | null>(null);
 
   // Helper to verify an invoice/receipt strictly belongs to this logged-in resident
-  const isCurrentResidentMatch = (item: { residentId?: string; residentName?: string; wing?: string; apartmentNo?: string }) => {
-    if (item.residentId && currentUser.uid && item.residentId === currentUser.uid) {
-      return true;
-    }
-    if (item.residentName && currentUser.name && item.residentName.trim().toLowerCase() === currentUser.name.trim().toLowerCase()) {
-      if (item.apartmentNo && currentUser.apartmentNo && item.apartmentNo.trim() !== currentUser.apartmentNo.trim()) {
-        return false;
-      }
-      return true;
-    }
-    if (item.apartmentNo && currentUser.apartmentNo && item.apartmentNo.trim().toLowerCase() === currentUser.apartmentNo.trim().toLowerCase()) {
-      if (item.wing && currentUser.wing) {
-        return item.wing.trim().toLowerCase() === currentUser.wing.trim().toLowerCase();
-      }
-      return true;
-    }
-    return false;
-  };
+  // (shared with ResidentDashboard.tsx via constants.ts, so both stay in sync)
+  const isCurrentResidentMatch = (item: { residentId?: string; residentName?: string; wing?: string; apartmentNo?: string }) =>
+    isResidentInvoiceMatch(item, currentUser);
 
   // Local state for live fetched receipts strictly for this resident
   const [residentSpecificReceipts, setResidentSpecificReceipts] = useState<Receipt[]>([]);

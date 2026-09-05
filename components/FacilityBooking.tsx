@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Facility, Booking, FacilityBlock, User } from '../types';
+import { useAuthedImageUrl } from '../hooks/useAuthedImageUrl';
 import { 
   Calendar, Clock, QrCode, Users, Sparkles, ChevronLeft, ChevronRight, 
-  CheckCircle2, X, AlertCircle, CreditCard, ShieldCheck, IndianRupee, 
+  CheckCircle2, X, AlertCircle, ShieldCheck, IndianRupee, 
   Smartphone, Building2, Check, ArrowRight, Info, CalendarCheck, ShieldAlert,
   AlertTriangle, Lock
 } from 'lucide-react';
@@ -47,6 +48,12 @@ const doTimeRangesOverlap = (start1: number, end1: number, start2: number, end2:
   return Math.max(start1, start2) < Math.min(end1, end2);
 };
 
+// Renders a facility's defined slots as a compact "06:00-09:00, 17:00-19:00" string.
+const formatSlots = (slots: Facility['slots'] = []): string =>
+  slots.length > 0
+    ? slots.map(s => `${s.startTime} - ${s.endTime}`).join(', ')
+    : 'No slots defined';
+
 export const FacilityBooking: React.FC<FacilityBookingProps> = ({ 
   facilities, 
   bookings = [],
@@ -57,6 +64,9 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
   onCancelBooking
 }) => {
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
+  // The backend serves uploaded QR codes from an authenticated endpoint —
+  // route the display through a blob URL so it actually loads (see hook).
+  const paymentQrPreviewUrl = useAuthedImageUrl(selectedFacility?.paymentQrUrl);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isPaymentStep, setIsPaymentStep] = useState(false);
   const [bookingSuccessPass, setBookingSuccessPass] = useState<Booking | null>(null);
@@ -72,11 +82,22 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
   const [customEndTime, setCustomEndTime] = useState('08:00');
   const [useCustomTime, setUseCustomTime] = useState(false);
 
-  // Payment State
-  const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING'>('UPI');
-  const [upiId, setUpiId] = useState('resident@okhdfcbank');
+  // Payment State — no live gateway is integrated, so residents pay manually
+  // using whichever of the facility's configured options (QR/UPI/bank) they
+  // prefer, then self-declare completion for the facility manager to verify.
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [bookingError, setBookingError] = useState('');
+  const [copiedField, setCopiedField] = useState<'upi' | 'account' | 'ifsc' | null>(null);
+
+  const handleCopyToClipboard = (text: string, field: 'upi' | 'account' | 'ifsc') => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  // Click-to-zoom the payment QR code (the thumbnail uses object-contain, so
+  // this just shows the same image larger — no re-fetch needed).
+  const [isQrZoomed, setIsQrZoomed] = useState(false);
 
   // Selected Booking for Full QR Pass Modal
   const [viewingPass, setViewingPass] = useState<Booking | null>(null);
@@ -88,24 +109,16 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
     setSelectedTimeSlot('');
     setUseCustomTime(false);
     setIsPaymentStep(false);
+    setIsQrZoomed(false);
     setBookingError('');
     setIsBookingModalOpen(true);
   };
 
-  // Generate 1-hour time slots based on facility open and close time
+  // Present the admin-defined booking slots (up to 4, configured in the
+  // Add/Edit Amenity modal) directly as the resident's bookable choices.
   const availableTimeSlots = useMemo(() => {
-    if (!selectedFacility) return [];
-    
-    const openH = parseInt(selectedFacility.openTime.split(':')[0], 10) || 6;
-    const closeH = parseInt(selectedFacility.closeTime.split(':')[0], 10) || 22;
-    
-    const slots: string[] = [];
-    for (let h = openH; h < closeH; h++) {
-      const startStr = `${h.toString().padStart(2, '0')}:00`;
-      const endStr = `${(h + 1).toString().padStart(2, '0')}:00`;
-      slots.push(`${startStr} - ${endStr}`);
-    }
-    return slots;
+    if (!selectedFacility || !selectedFacility.slots) return [];
+    return selectedFacility.slots.map(s => `${s.startTime} - ${s.endTime}`);
   }, [selectedFacility]);
 
   // Calendar days calculation
@@ -212,8 +225,12 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
     return getSlotAvailability(effectiveTimeSlot);
   }, [effectiveTimeSlot, selectedFacility, selectedDate, facilityBlocks, bookings]);
 
-  // Handle final submission of booking (Free or Paid)
-  const handleConfirmBooking = async (paid: boolean = false) => {
+  // Handle final submission of booking. `selfDeclaredPaid` means the resident
+  // says they've completed a manual payment (QR/UPI/bank transfer) — since
+  // there's no live gateway to verify this automatically, such bookings are
+  // reserved immediately but left as 'Pending' until the facility manager
+  // confirms the payment actually came through (see Dashboard.tsx).
+  const handleConfirmBooking = async (selfDeclaredPaid: boolean = false) => {
     if (!selectedFacility) return;
     if (!selectedDate) {
       setBookingError('Please select a booking date.');
@@ -260,11 +277,14 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
         apartmentNo: currentUser?.apartmentNo || '',
         date: selectedDate,
         timeSlot: effectiveTimeSlot,
-        status: 'Confirmed',
+        // Free bookings are confirmed immediately. Self-declared paid bookings
+        // stay 'Pending' — the slot is reserved, but the facility manager
+        // still needs to verify the payment before it's truly confirmed.
+        status: selfDeclaredPaid ? 'Pending' : 'Confirmed',
         qrCode: qrPassCode,
-        isPaid: paid,
-        amountPaid: paid ? (selectedFacility.price || 0) : 0,
-        paymentRef: paid ? `TXN-PAY-${Date.now().toString().slice(-6)}` : undefined,
+        isPaid: false,
+        amountPaid: selfDeclaredPaid ? (selectedFacility.price || 0) : 0,
+        paymentRef: undefined,
         societyId: selectedFacility.societyId || currentUser?.societyId || 'soc-mtb32pfk'
       };
 
@@ -408,7 +428,7 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
 
                         <div className="flex items-center gap-2 text-xs font-medium text-gray-500 pt-1">
                           <Clock className="w-4 h-4 text-brand-600 shrink-0" />
-                          <span>Hours: {facility.openTime} - {facility.closeTime}</span>
+                          <span>Hours: {formatSlots(facility.slots)}</span>
                         </div>
 
                         {facility.rules && (
@@ -477,8 +497,14 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
                         <span className="text-[11px] font-bold tracking-wider text-brand-600 uppercase">
                           Pass #{booking.id.replace('b-', '').toUpperCase()}
                         </span>
-                        <span className="bg-emerald-100 text-emerald-800 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">
-                          {booking.status}
+                        <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${
+                          booking.status === 'Pending'
+                            ? 'bg-amber-100 text-amber-800'
+                            : booking.status === 'Cancelled'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {booking.status === 'Pending' ? 'Payment Pending Verification' : booking.status}
                         </span>
                       </div>
 
@@ -574,7 +600,7 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
                     Book Slot: {selectedFacility.name}
                   </h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Operating Hours: {selectedFacility.openTime} - {selectedFacility.closeTime} • Max Capacity: {selectedFacility.capacity} • {societyName}
+                    Slots: {formatSlots(selectedFacility.slots)} • Max Capacity: {selectedFacility.capacity} • {societyName}
                   </p>
                 </div>
               </div>
@@ -887,112 +913,109 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
                     </div>
                   </div>
 
-                  {/* Payment Method Selector */}
+                  {/* Facility's Payment Options (whichever the admin has configured) */}
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-                      Select Payment Method
+                      Pay Using Any of the Options Below
                     </label>
-                    <div className="grid grid-cols-3 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentMethod('UPI')}
-                        className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          paymentMethod === 'UPI'
-                            ? 'bg-brand-50 border-brand-600 text-brand-900 ring-2 ring-brand-500/20'
-                            : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'
-                        }`}
-                      >
-                        <Smartphone className="w-5 h-5 text-brand-600 mb-2" />
-                        <span className="text-xs font-bold block">Instant UPI</span>
-                        <span className="text-[10px] text-gray-500">GPay, PhonePe, Paytm</span>
-                      </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setPaymentMethod('CARD')}
-                        className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          paymentMethod === 'CARD'
-                            ? 'bg-brand-50 border-brand-600 text-brand-900 ring-2 ring-brand-500/20'
-                            : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'
-                        }`}
-                      >
-                        <CreditCard className="w-5 h-5 text-brand-600 mb-2" />
-                        <span className="text-xs font-bold block">Debit / Credit</span>
-                        <span className="text-[10px] text-gray-500">Visa, Mastercard, RuPay</span>
-                      </button>
+                    {!selectedFacility.paymentQrUrl && !selectedFacility.upiId && !selectedFacility.bankAccountNumber && !selectedFacility.bankIfscCode ? (
+                      <div className="p-3.5 bg-amber-50 text-amber-900 rounded-2xl border border-amber-200 text-xs flex items-start gap-2.5">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-700 mt-0.5" />
+                        <span>No payment details have been configured for this facility yet. Please contact the facility manager directly to arrange payment.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {selectedFacility.paymentQrUrl && (
+                          <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 flex items-center gap-4">
+                            <button
+                              type="button"
+                              onClick={() => setIsQrZoomed(true)}
+                              title="Click to view full size"
+                              className="shrink-0 w-24 h-24 rounded-xl border border-gray-200 bg-white overflow-hidden hover:ring-2 hover:ring-brand-400 transition cursor-zoom-in"
+                            >
+                              <img
+                                src={paymentQrPreviewUrl || undefined}
+                                alt="Payment QR Code"
+                                className="w-full h-full object-contain"
+                              />
+                            </button>
+                            <div>
+                              <p className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                <QrCode className="w-3.5 h-3.5 text-brand-600" /> Scan to Pay
+                              </p>
+                              <p className="text-[11px] text-gray-500 mt-0.5">
+                                Scan this QR code using any UPI app (GPay, PhonePe, Paytm, etc.), or click to view it full size.
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
-                      <button
-                        type="button"
-                        onClick={() => setPaymentMethod('NETBANKING')}
-                        className={`p-3.5 rounded-2xl border text-left transition flex flex-col justify-between ${
-                          paymentMethod === 'NETBANKING'
-                            ? 'bg-brand-50 border-brand-600 text-brand-900 ring-2 ring-brand-500/20'
-                            : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'
-                        }`}
-                      >
-                        <Building2 className="w-5 h-5 text-brand-600 mb-2" />
-                        <span className="text-xs font-bold block">Net Banking</span>
-                        <span className="text-[10px] text-gray-500">All Indian Banks</span>
-                      </button>
-                    </div>
+                        {selectedFacility.upiId && (
+                          <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                                <Smartphone className="w-3.5 h-3.5 text-brand-600" /> UPI ID
+                              </p>
+                              <p className="text-sm font-mono font-semibold text-gray-900 mt-0.5 truncate">{selectedFacility.upiId}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyToClipboard(selectedFacility.upiId!, 'upi')}
+                              className="shrink-0 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-700 hover:bg-gray-100 transition"
+                            >
+                              {copiedField === 'upi' ? 'Copied!' : 'Copy'}
+                            </button>
+                          </div>
+                        )}
+
+                        {(selectedFacility.bankAccountNumber || selectedFacility.bankIfscCode) && (
+                          <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-2">
+                            <p className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5 text-brand-600" /> Bank Transfer Details
+                            </p>
+                            {selectedFacility.bankAccountNumber && (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] text-gray-500">Account Number</p>
+                                  <p className="text-sm font-mono font-semibold text-gray-900 truncate">{selectedFacility.bankAccountNumber}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyToClipboard(selectedFacility.bankAccountNumber!, 'account')}
+                                  className="shrink-0 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-700 hover:bg-gray-100 transition"
+                                >
+                                  {copiedField === 'account' ? 'Copied!' : 'Copy'}
+                                </button>
+                              </div>
+                            )}
+                            {selectedFacility.bankIfscCode && (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[11px] text-gray-500">IFSC Code</p>
+                                  <p className="text-sm font-mono font-semibold text-gray-900 truncate">{selectedFacility.bankIfscCode}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyToClipboard(selectedFacility.bankIfscCode!, 'ifsc')}
+                                  className="shrink-0 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-700 hover:bg-gray-100 transition"
+                                >
+                                  {copiedField === 'ifsc' ? 'Copied!' : 'Copy'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Payment Details Input */}
-                  {paymentMethod === 'UPI' && (
-                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-2">
-                      <label className="text-xs font-semibold text-gray-700 block">Enter UPI ID / VPA</label>
-                      <input
-                        type="text"
-                        value={upiId}
-                        onChange={(e) => setUpiId(e.target.value)}
-                        placeholder="yourname@okhdfcbank"
-                        className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 text-sm font-medium focus:ring-2 focus:ring-brand-500 focus:outline-none"
-                      />
-                      <p className="text-[11px] text-gray-500">
-                        Payment request will be processed securely and verified automatically into Supabase.
-                      </p>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'CARD' && (
-                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
-                      <div>
-                        <label className="text-xs font-semibold text-gray-700 block mb-1">Card Number</label>
-                        <input
-                          type="text"
-                          defaultValue="•••• •••• •••• 4242"
-                          className="w-full px-3 py-2 rounded-xl border border-gray-300 text-sm font-mono"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-xs font-semibold text-gray-700 block mb-1">Expiry</label>
-                          <input type="text" defaultValue="12/28" className="w-full px-3 py-2 rounded-xl border border-gray-300 text-sm font-mono" />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-gray-700 block mb-1">CVV</label>
-                          <input type="password" defaultValue="888" className="w-full px-3 py-2 rounded-xl border border-gray-300 text-sm font-mono" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'NETBANKING' && (
-                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
-                      <label className="text-xs font-semibold text-gray-700 block mb-1.5">Select Bank</label>
-                      <select className="w-full px-3 py-2 rounded-xl border border-gray-300 text-sm">
-                        <option>HDFC Bank</option>
-                        <option>State Bank of India</option>
-                        <option>ICICI Bank</option>
-                        <option>Axis Bank</option>
-                        <option>Kotak Mahindra Bank</option>
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2 text-xs text-gray-500 justify-center">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span>256-bit SSL encrypted society gateway • Instant receipt generation</span>
+                  {/* Manual verification notice — no live payment gateway is integrated yet */}
+                  <div className="p-3.5 bg-blue-50 text-blue-900 rounded-2xl border border-blue-200 text-xs flex items-start gap-2.5">
+                    <Info className="w-4 h-4 shrink-0 text-blue-700 mt-0.5" />
+                    <span>
+                      Complete your payment using any option above, then click below to reserve your slot. Since an online payment gateway isn't integrated yet, please also confirm with the facility manager that your payment and booking are successful.
+                    </span>
                   </div>
                 </div>
               )}
@@ -1038,9 +1061,9 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
                       className="px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold transition shadow-sm flex items-center gap-2 disabled:opacity-50"
                     >
                       {isProcessingPayment ? (
-                        <span>Processing Payment...</span>
+                        <span>Reserving Slot...</span>
                       ) : (
-                        <span>Pay {formatCurrency(selectedFacility.price || 0)} & Confirm Pass</span>
+                        <span>I've Made the Payment — Reserve My Slot</span>
                       )}
                     </button>
                   )
@@ -1069,14 +1092,20 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
       {bookingSuccessPass && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl p-6 text-center space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl animate-bounce">
-              ✓
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto text-2xl animate-bounce ${
+              bookingSuccessPass.status === 'Pending' ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'
+            }`}>
+              {bookingSuccessPass.status === 'Pending' ? '⏳' : '✓'}
             </div>
 
             <div>
-              <h3 className="text-xl font-bold text-gray-900">Booking Confirmed!</h3>
+              <h3 className="text-xl font-bold text-gray-900">
+                {bookingSuccessPass.status === 'Pending' ? 'Slot Reserved — Payment Pending Verification' : 'Booking Confirmed!'}
+              </h3>
               <p className="text-xs text-gray-500 mt-1">
-                Your reservation for <strong>{bookingSuccessPass.facilityName}</strong> is verified.
+                {bookingSuccessPass.status === 'Pending'
+                  ? <>Your slot for <strong>{bookingSuccessPass.facilityName}</strong> is reserved. Please confirm with the facility manager that your payment and booking are successful — they'll verify it shortly.</>
+                  : <>Your reservation for <strong>{bookingSuccessPass.facilityName}</strong> is verified.</>}
               </p>
             </div>
 
@@ -1096,6 +1125,12 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
                   )}
                 </span>
               </div>
+              {bookingSuccessPass.status === 'Pending' && (bookingSuccessPass.amountPaid || 0) > 0 && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Amount to Verify:</span>
+                  <span className="font-bold text-amber-700">{formatCurrency(bookingSuccessPass.amountPaid || 0)}</span>
+                </div>
+              )}
               {bookingSuccessPass.isPaid && (
                 <div className="flex justify-between text-xs">
                   <span className="text-gray-500">Paid Amount:</span>
@@ -1152,6 +1187,34 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
             >
               Close Pass
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Zoomed Payment QR Code Modal — full-size view of the facility's QR */}
+      {isBookingModalOpen && isQrZoomed && selectedFacility?.paymentQrUrl && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setIsQrZoomed(false)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-sm w-full shadow-2xl p-6 text-center space-y-3 animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b pb-3">
+              <h4 className="font-bold text-gray-900 text-sm">Payment QR Code</h4>
+              <button onClick={() => setIsQrZoomed(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <img
+              src={paymentQrPreviewUrl || undefined}
+              alt="Payment QR Code"
+              className="w-full h-auto max-h-[70vh] rounded-xl border border-gray-200 object-contain bg-white"
+            />
+            <p className="text-xs text-gray-500">
+              Scan this QR code using any UPI app (GPay, PhonePe, Paytm, etc.)
+            </p>
           </div>
         </div>
       )}

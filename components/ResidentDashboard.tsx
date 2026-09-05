@@ -18,7 +18,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
-import { formatCurrency } from '../constants';
+import { formatCurrency, isResidentInvoiceMatch } from '../constants';
 
 interface ResidentDashboardProps {
   user: User;
@@ -59,12 +59,7 @@ export const ResidentDashboard: React.FC<ResidentDashboardProps> = ({
 
   // Calculate pending maintenance for this resident
   const residentPendingInvoices = useMemo(() => {
-    return invoices.filter(inv => {
-      const matchUser = (inv.residentId && inv.residentId === user.uid) ||
-        (inv.residentName && user.name && inv.residentName.toLowerCase() === user.name.toLowerCase()) ||
-        (inv.apartmentNo && user.apartmentNo && inv.apartmentNo === user.apartmentNo);
-      return matchUser && inv.status !== 'Paid';
-    });
+    return invoices.filter(inv => isResidentInvoiceMatch(inv, user) && inv.status !== 'Paid');
   }, [invoices, user]);
 
   const totalPendingAmount = useMemo(() => {

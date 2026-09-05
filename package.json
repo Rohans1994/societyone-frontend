@@ -14,12 +14,14 @@
     "@supabase/supabase-js": "^2.108.2",
     "jspdf": "2.5.1",
     "lucide-react": "^0.562.0",
+    "papaparse": "^5.7.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/papaparse": "^5.5.2",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

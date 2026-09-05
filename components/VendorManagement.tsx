@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import { Vendor } from '../types';
-import { Search, Plus, Trash2, Edit2, Phone, Mail, Briefcase, X } from 'lucide-react';
+import { Search, Plus, Trash2, Edit2, Phone, Mail, Briefcase, X, Upload } from 'lucide-react';
+import { BulkImportModal, BulkImportSummary } from './BulkImportModal';
 
 interface VendorManagementProps {
     vendors: Vendor[];
     onAddVendor: (vendor: Vendor) => void;
     onUpdateVendor: (vendor: Vendor) => void;
     onDeleteVendor: (id: string) => void;
+    onBulkImportVendors?: (rows: Record<string, string>[]) => Promise<BulkImportSummary>;
 }
 
-export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onAddVendor, onUpdateVendor, onDeleteVendor }) => {
+export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onAddVendor, onUpdateVendor, onDeleteVendor, onBulkImportVendors }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
     const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
 
     const [formData, setFormData] = useState<Omit<Vendor, 'id' | 'status'>>({
@@ -100,12 +103,22 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
                     <h2 className="text-2xl font-bold text-gray-900">Vendor Management</h2>
                     <p className="text-sm text-gray-500">Manage service providers and contracts.</p>
                 </div>
-                <button 
-                    onClick={() => { setEditingVendor(null); setFormData({ name: '', serviceCategory: 'Plumbing', contactPerson: '', phone: '', email: '' }); setIsModalOpen(true); }}
-                    className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
-                >
-                    <Plus className="w-4 h-4" /> Add Vendor
-                </button>
+                <div className="flex items-center gap-2">
+                    {onBulkImportVendors && (
+                        <button
+                            onClick={() => setIsBulkImportOpen(true)}
+                            className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+                        >
+                            <Upload className="w-4 h-4" /> Bulk Import
+                        </button>
+                    )}
+                    <button 
+                        onClick={() => { setEditingVendor(null); setFormData({ name: '', serviceCategory: 'Plumbing', contactPerson: '', phone: '', email: '' }); setIsModalOpen(true); }}
+                        className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" /> Add Vendor
+                    </button>
+                </div>
             </div>
 
             <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
@@ -204,6 +217,18 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
                         </form>
                     </div>
                 </div>
+            )}
+
+            {/* Bulk Import Modal */}
+            {onBulkImportVendors && (
+                <BulkImportModal
+                    isOpen={isBulkImportOpen}
+                    onClose={() => setIsBulkImportOpen(false)}
+                    title="Bulk Import Vendors"
+                    templateColumns={['name', 'serviceCategory', 'contactPerson', 'phone', 'email', 'status']}
+                    templateSampleRow={['CoolAir Systems', 'AC', 'Rajesh Kumar', '9876543210', 'rajesh@coolair.com', 'Active']}
+                    onImport={onBulkImportVendors}
+                />
             )}
         </div>
     );

@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Facility, FacilityBlock, Role } from '../types';
+import React, { useState, useRef } from 'react';
+import { Facility, FacilityBlock, FacilitySlot, MAX_FACILITY_SLOTS, Role } from '../types';
+import { useAuthedImageUrl } from '../hooks/useAuthedImageUrl';
 import { 
   Sparkles, Plus, Search, Users, Clock, IndianRupee, 
   CheckCircle2, XCircle, Edit, Trash2, Image as ImageIcon, 
-  Info, AlertCircle, Eye, CalendarCheck, ShieldAlert, Wrench, Calendar, X
+  Info, AlertCircle, Eye, CalendarCheck, ShieldAlert, Wrench, Calendar, X,
+  QrCode, Upload, Landmark
 } from 'lucide-react';
 import { formatCurrency } from '../constants';
 
@@ -11,6 +13,10 @@ interface AmenitiesManagerProps {
   facilities: Facility[];
   facilityBlocks?: FacilityBlock[];
   societyName?: string;
+  // Name of the active society's dedicated Storage bucket. Falls back to the
+  // legacy shared 'assets' bucket if undefined (societies created before
+  // this feature, not yet backfilled).
+  storageBucket?: string;
   userRole?: Role;
   onAddFacility: (facility: Facility) => Promise<void>;
   onUpdateFacility: (facility: Facility) => Promise<void>;
@@ -19,6 +25,15 @@ interface AmenitiesManagerProps {
   onDeleteBlock?: (id: string) => Promise<void>;
   onNavigateToBooking?: () => void;
 }
+
+const convertToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+};
 
 const PRESET_IMAGES = [
   { label: 'Gym', url: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&auto=format&fit=crop&q=60' },
@@ -31,10 +46,17 @@ const PRESET_IMAGES = [
   { label: 'Clubhouse Lounge', url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&auto=format&fit=crop&q=60' },
 ];
 
+// Renders a facility's defined slots as a compact "06:00-09:00, 17:00-19:00" string.
+const formatSlots = (slots: FacilitySlot[] = []): string =>
+  slots.length > 0
+    ? slots.map(s => `${s.startTime}-${s.endTime}`).join(', ')
+    : 'No slots defined';
+
 export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
   facilities,
   facilityBlocks = [],
   societyName = 'Society',
+  storageBucket,
   userRole,
   onAddFacility,
   onUpdateFacility,
@@ -66,12 +88,21 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [capacity, setCapacity] = useState<number>(15);
-  const [openTime, setOpenTime] = useState('06:00');
-  const [closeTime, setCloseTime] = useState('22:00');
+  const [slots, setSlots] = useState<FacilitySlot[]>([{ startTime: '06:00', endTime: '22:00' }]);
   const [imageUrl, setImageUrl] = useState('');
   const [canBook, setCanBook] = useState(true);
   const [requiresPayment, setRequiresPayment] = useState(false);
   const [price, setPrice] = useState<number>(0);
+  const [paymentQrUrl, setPaymentQrUrl] = useState('');
+  // The backend serves uploaded QR codes from an authenticated endpoint —
+  // route the preview through a blob URL so it actually loads (see hook).
+  const paymentQrPreviewUrl = useAuthedImageUrl(paymentQrUrl);
+  const [upiId, setUpiId] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankIfscCode, setBankIfscCode] = useState('');
+  const [isUploadingQr, setIsUploadingQr] = useState(false);
+  const [qrUploadError, setQrUploadError] = useState('');
+  const qrFileInputRef = useRef<HTMLInputElement>(null);
   const [rules, setRules] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -80,12 +111,16 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
     setName('');
     setDescription('');
     setCapacity(15);
-    setOpenTime('06:00');
-    setCloseTime('22:00');
+    setSlots([{ startTime: '06:00', endTime: '22:00' }]);
     setImageUrl(PRESET_IMAGES[0].url);
     setCanBook(true);
     setRequiresPayment(false);
     setPrice(0);
+    setPaymentQrUrl('');
+    setUpiId('');
+    setBankAccountNumber('');
+    setBankIfscCode('');
+    setQrUploadError('');
     setRules('');
     setFormError('');
     setIsModalOpen(true);
@@ -96,12 +131,16 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
     setName(facility.name);
     setDescription(facility.description || '');
     setCapacity(facility.capacity || 10);
-    setOpenTime(facility.openTime || '06:00');
-    setCloseTime(facility.closeTime || '22:00');
+    setSlots(facility.slots && facility.slots.length > 0 ? facility.slots : [{ startTime: '06:00', endTime: '22:00' }]);
     setImageUrl(facility.imageUrl || PRESET_IMAGES[0].url);
     setCanBook(facility.canBook !== false);
     setRequiresPayment(Boolean(facility.requiresPayment));
     setPrice(facility.price || 0);
+    setPaymentQrUrl(facility.paymentQrUrl || '');
+    setUpiId(facility.upiId || '');
+    setBankAccountNumber(facility.bankAccountNumber || '');
+    setBankIfscCode(facility.bankIfscCode || '');
+    setQrUploadError('');
     setRules(facility.rules || '');
     setFormError('');
     setIsModalOpen(true);
@@ -118,6 +157,55 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
     setIsBlockModalOpen(true);
   };
 
+  // Growing the slot count appends new default slots; shrinking truncates
+  // from the end. Existing slot times are always preserved.
+  const handleSlotCountChange = (count: number) => {
+    setSlots(prev => {
+      const next = prev.slice(0, count);
+      while (next.length < count) {
+        next.push({ startTime: '09:00', endTime: '17:00' });
+      }
+      return next;
+    });
+  };
+
+  const handleSlotFieldChange = (index: number, field: keyof FacilitySlot, value: string) => {
+    setSlots(prev => prev.map((slot, i) => (i === index ? { ...slot, [field]: value } : slot)));
+  };
+
+  const handleQrCodeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingQr(true);
+    setQrUploadError('');
+    try {
+      const base64Data = await convertToBase64(file);
+      const qrFilename = `${Date.now()}_${file.name}`;
+      const uploadRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // Society's dedicated bucket if available (falls back to the
+          // legacy shared 'assets' bucket), always under an amenities/ folder.
+          bucket: storageBucket || 'assets',
+          filename: `amenities/${qrFilename}`,
+          contentBase64: base64Data,
+          mimeType: file.type || 'image/png'
+        })
+      });
+      if (!uploadRes.ok) {
+        throw new Error('Failed to upload QR code image.');
+      }
+      const result = await uploadRes.json();
+      setPaymentQrUrl(result.url);
+    } catch (err: any) {
+      setQrUploadError(err.message || 'Failed to upload QR code image.');
+    } finally {
+      setIsUploadingQr(false);
+      if (qrFileInputRef.current) qrFileInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -132,6 +220,15 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
       setFormError('Please provide a valid non-negative fee amount.');
       return;
     }
+    if (slots.length === 0) {
+      setFormError('Please define at least one booking slot.');
+      return;
+    }
+    const invalidSlotIndex = slots.findIndex(s => !s.startTime || !s.endTime || s.startTime >= s.endTime);
+    if (invalidSlotIndex !== -1) {
+      setFormError(`Slot ${invalidSlotIndex + 1}: end time must be after start time.`);
+      return;
+    }
 
     setIsSubmitting(true);
     setFormError('');
@@ -142,13 +239,16 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
         name: name.trim(),
         description: description.trim(),
         capacity: Number(capacity),
-        openTime,
-        closeTime,
+        slots,
         imageUrl: imageUrl.trim() || PRESET_IMAGES[0].url,
         images: [imageUrl.trim() || PRESET_IMAGES[0].url],
         canBook,
         requiresPayment: canBook ? requiresPayment : false,
         price: (canBook && requiresPayment) ? Number(price) : 0,
+        paymentQrUrl: (canBook && requiresPayment) ? paymentQrUrl.trim() : '',
+        upiId: (canBook && requiresPayment) ? upiId.trim() : '',
+        bankAccountNumber: (canBook && requiresPayment) ? bankAccountNumber.trim() : '',
+        bankIfscCode: (canBook && requiresPayment) ? bankIfscCode.trim() : '',
         rules: rules.trim(),
         societyId: editingFacility?.societyId
       };
@@ -489,7 +589,7 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
                         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-xs text-gray-600">
                           <div className="flex items-center gap-1.5">
                             <Clock className="w-3.5 h-3.5 text-gray-400" />
-                            <span>{facility.openTime} - {facility.closeTime}</span>
+                            <span>{formatSlots(facility.slots)}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <Users className="w-3.5 h-3.5 text-gray-400" />
@@ -684,7 +784,7 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
                 >
                   {facilities.map(f => (
                     <option key={f.id} value={f.id}>
-                      {f.name} ({f.openTime} - {f.closeTime})
+                      {f.name} ({formatSlots(f.slots)})
                     </option>
                   ))}
                 </select>
@@ -841,32 +941,8 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
                 />
               </div>
 
-              {/* Operating Hours & Capacity */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Opening Time *
-                  </label>
-                  <input
-                    type="time"
-                    required
-                    value={openTime}
-                    onChange={(e) => setOpenTime(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                    Closing Time *
-                  </label>
-                  <input
-                    type="time"
-                    required
-                    value={closeTime}
-                    onChange={(e) => setCloseTime(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs"
-                  />
-                </div>
+              {/* Capacity & Number of Booking Slots */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
                     Capacity (Persons) *
@@ -881,6 +957,55 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
                     className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Number of Slots *
+                  </label>
+                  <select
+                    required
+                    value={slots.length}
+                    onChange={(e) => handleSlotCountChange(parseInt(e.target.value, 10))}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs"
+                  >
+                    {Array.from({ length: MAX_FACILITY_SLOTS }, (_, i) => i + 1).map(count => (
+                      <option key={count} value={count}>
+                        {count} {count === 1 ? 'Slot' : 'Slots'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Booking Slot Timings */}
+              <div className="space-y-3">
+                {slots.map((slot, index) => (
+                  <div key={index} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                        Slot {index + 1} Start Time *
+                      </label>
+                      <input
+                        type="time"
+                        required
+                        value={slot.startTime}
+                        onChange={(e) => handleSlotFieldChange(index, 'startTime', e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                        Slot {index + 1} End Time *
+                      </label>
+                      <input
+                        type="time"
+                        required
+                        value={slot.endTime}
+                        onChange={(e) => handleSlotFieldChange(index, 'endTime', e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-gray-300 text-xs"
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Image Preset & URL */}
@@ -940,7 +1065,7 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
 
                 {/* 2. Payment check box & price input */}
                 {canBook && (
-                  <div className="pl-7 space-y-3 pt-2 border-t border-gray-200">
+                  <div className="space-y-3 pt-2 border-t border-gray-200">
                     <div className="flex items-start gap-3">
                       <input
                         id="requiresPayment"
@@ -960,21 +1085,100 @@ export const AmenitiesManager: React.FC<AmenitiesManagerProps> = ({
                     </div>
 
                     {requiresPayment && (
-                      <div className="pt-2">
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Booking Fee per Slot (₹ INR) *
-                        </label>
-                        <div className="relative max-w-xs">
-                          <IndianRupee className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                          <input
-                            type="number"
-                            min={1}
-                            required={requiresPayment}
-                            value={price}
-                            onChange={(e) => setPrice(Number(e.target.value))}
-                            placeholder="e.g. 200, 1500"
-                            className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-gray-300 text-xs font-bold"
-                          />
+                      <div className="pl-7 space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">
+                            Booking Fee per Slot (₹ INR) *
+                          </label>
+                          <div className="relative max-w-xs">
+                            <IndianRupee className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="number"
+                              min={1}
+                              required={requiresPayment}
+                              value={price}
+                              onChange={(e) => setPrice(Number(e.target.value))}
+                              placeholder="e.g. 200, 1500"
+                              className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-gray-300 text-xs font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Payment collection details — all optional */}
+                        <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-3">
+                          <p className="text-[11px] font-bold text-gray-600 uppercase tracking-wider">
+                            Payment Collection Details (Optional)
+                          </p>
+
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
+                              <QrCode className="w-3.5 h-3.5" /> Payment QR Code
+                            </label>
+                            <div className="flex items-center gap-3">
+                              {paymentQrUrl && (
+                                <img
+                                  src={paymentQrPreviewUrl || undefined}
+                                  alt="Payment QR Code"
+                                  className="w-14 h-14 rounded-lg border border-gray-200 object-contain bg-white"
+                                />
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => qrFileInputRef.current?.click()}
+                                disabled={isUploadingQr}
+                                className="px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-semibold text-gray-700 hover:bg-gray-50 transition flex items-center gap-1.5 disabled:opacity-50"
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                                {isUploadingQr ? 'Uploading...' : paymentQrUrl ? 'Replace QR Code' : 'Upload QR Code'}
+                              </button>
+                              <input
+                                ref={qrFileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleQrCodeUpload}
+                                className="hidden"
+                              />
+                            </div>
+                            {qrUploadError && (
+                              <p className="text-[11px] text-red-600 mt-1">{qrUploadError}</p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">UPI ID</label>
+                            <input
+                              type="text"
+                              value={upiId}
+                              onChange={(e) => setUpiId(e.target.value)}
+                              placeholder="e.g. society@upi"
+                              className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1">
+                                <Landmark className="w-3.5 h-3.5" /> Bank Account Number
+                              </label>
+                              <input
+                                type="text"
+                                value={bankAccountNumber}
+                                onChange={(e) => setBankAccountNumber(e.target.value)}
+                                placeholder="e.g. 123456789012"
+                                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">IFSC Code</label>
+                              <input
+                                type="text"
+                                value={bankIfscCode}
+                                onChange={(e) => setBankIfscCode(e.target.value.toUpperCase())}
+                                placeholder="e.g. HDFC0001234"
+                                className="w-full px-3.5 py-2 rounded-xl border border-gray-300 text-xs"
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}

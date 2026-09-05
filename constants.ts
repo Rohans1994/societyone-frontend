@@ -8,6 +8,37 @@ export const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
+/**
+ * Verifies an invoice/receipt strictly belongs to a given resident. Single
+ * source of truth for this check — previously duplicated separately in
+ * ResidentDashboard.tsx and ResidentMaintenanceView.tsx, which drifted out of
+ * sync: apartment numbers commonly repeat across different wings in the same
+ * society (e.g. Wing B apt 101, Wing C apt 101 are different physical units),
+ * so matching by apartmentNo alone — without also requiring wing to match —
+ * incorrectly aggregates other residents' invoices into this resident's total.
+ */
+export const isResidentInvoiceMatch = (
+  item: { residentId?: string; residentName?: string; wing?: string; apartmentNo?: string },
+  currentUser: { uid?: string; name?: string; wing?: string; apartmentNo?: string }
+): boolean => {
+  if (item.residentId && currentUser.uid && item.residentId === currentUser.uid) {
+    return true;
+  }
+  if (item.residentName && currentUser.name && item.residentName.trim().toLowerCase() === currentUser.name.trim().toLowerCase()) {
+    if (item.apartmentNo && currentUser.apartmentNo && item.apartmentNo.trim() !== currentUser.apartmentNo.trim()) {
+      return false;
+    }
+    return true;
+  }
+  if (item.apartmentNo && currentUser.apartmentNo && item.apartmentNo.trim().toLowerCase() === currentUser.apartmentNo.trim().toLowerCase()) {
+    if (item.wing && currentUser.wing) {
+      return item.wing.trim().toLowerCase() === currentUser.wing.trim().toLowerCase();
+    }
+    return true;
+  }
+  return false;
+};
+
 // Helper to get dynamic dates
 const today = new Date();
 const formatDate = (date: Date) => date.toISOString().split('T')[0];
@@ -151,9 +182,9 @@ export const MOCK_AMCS: AMC[] = [
 ];
 
 export const MOCK_FACILITIES: Facility[] = [
-  { id: 'f1', name: 'Grand Gym', capacity: 20, openTime: '06:00', closeTime: '22:00', imageUrl: 'https://picsum.photos/id/203/400/300', societyId: 'soc-mtb32pfk' },
-  { id: 'f2', name: 'Infinity Pool', capacity: 15, openTime: '07:00', closeTime: '20:00', imageUrl: 'https://picsum.photos/id/250/400/300', societyId: 'soc-mtb32pfk' },
-  { id: 'f3', name: 'Banquet Hall', capacity: 100, openTime: '10:00', closeTime: '23:00', imageUrl: 'https://picsum.photos/id/439/400/300', societyId: 'soc-mtb32pfk' },
+  { id: 'f1', name: 'Grand Gym', capacity: 20, slots: [{ startTime: '06:00', endTime: '22:00' }], imageUrl: 'https://picsum.photos/id/203/400/300', societyId: 'soc-mtb32pfk' },
+  { id: 'f2', name: 'Infinity Pool', capacity: 15, slots: [{ startTime: '07:00', endTime: '20:00' }], imageUrl: 'https://picsum.photos/id/250/400/300', societyId: 'soc-mtb32pfk' },
+  { id: 'f3', name: 'Banquet Hall', capacity: 100, slots: [{ startTime: '10:00', endTime: '23:00' }], imageUrl: 'https://picsum.photos/id/439/400/300', societyId: 'soc-mtb32pfk' },
 ];
 
 export const MOCK_TICKETS: Ticket[] = [

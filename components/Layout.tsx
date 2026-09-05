@@ -3,6 +3,7 @@ import { Role, ViewState } from '../types';
 import { LayoutDashboard, Users, Wrench, Wallet, Building2, ShieldCheck, Menu, Bell, User as UserIcon, LogOut, Lock, Calendar, Home, Briefcase, Waves, ClipboardList, Sparkles, ReceiptText } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSelector } from './LanguageSelector';
+import { AuthedImg } from './AuthedImg';
 
 interface LayoutProps {
   children: ReactNode;
@@ -10,6 +11,7 @@ interface LayoutProps {
   onChangeView: (view: ViewState) => void;
   userRole: Role;
   userName: string;
+  userAvatarUrl?: string;
   societyName?: string;
   societyPincode?: string;
   onLogout: () => void;
@@ -45,6 +47,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onChangeView, 
   userRole, 
   userName, 
+  userAvatarUrl,
   societyName = 'Grand Imperial Heights',
   societyPincode,
   onLogout 
@@ -242,15 +245,23 @@ export const Layout: React.FC<LayoutProps> = ({
              {/* Language Switcher */}
              <LanguageSelector />
 
-             <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 rounded-full border border-gray-100">
-                <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold">
-                    {userName.charAt(0)}
-                </div>
+             <button
+                onClick={() => onChangeView('MY_PROFILE')}
+                className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-full border border-gray-100 transition"
+                title="My Profile"
+             >
+                {userAvatarUrl ? (
+                    <AuthedImg src={userAvatarUrl} alt={userName} className="w-8 h-8 rounded-full object-cover border border-gray-200" />
+                ) : (
+                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold">
+                        {userName.charAt(0)}
+                    </div>
+                )}
                 <div className="hidden md:block pr-2 text-right">
                     <p className="text-sm font-semibold text-gray-900 leading-none">{userName}</p>
                     <p className="text-xs text-gray-500 mt-0.5">{userRole}</p>
                 </div>
-             </div>
+             </button>
              <button className="relative p-2 text-gray-500 hover:bg-gray-100 rounded-full transition">
                 <Bell className="w-5 h-5" />
                 <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
