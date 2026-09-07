@@ -24,6 +24,8 @@
 // call site keeps working unmodified; requests made while signed out simply
 // go out without an Authorization header, and the backend rejects those that
 // require one with 401.
+import { triggerSessionExpired, triggerApiError } from './authEvents';
+
 const rawApiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
 export const API_BASE_URL = rawApiUrl !== undefined
   ? rawApiUrl.replace(/\/$/, '')
@@ -43,6 +45,64 @@ async function withAuthHeader(init?: RequestInit): Promise<RequestInit | undefin
   return { ...init, headers };
 }
 
+// --- Global "is a backend API call in flight" tracker ---
+//
+// Powers the app-wide GlobalLoader overlay (components/GlobalLoader.tsx):
+// every button click that triggers a backend call goes through one of the
+// '/api/...' fetch branches below, so counting them here — in one place —
+// covers every existing call site without needing to touch each of the
+// ~75+ handlers individually. Exposed as a tiny subscribe/snapshot pair so
+// it can be read from React via useSyncExternalStore (see
+// hooks/useApiLoading.ts).
+let activeApiCallCount = 0;
+const apiLoadingListeners = new Set<() => void>();
+
+function notifyApiLoadingListeners() {
+  apiLoadingListeners.forEach(listener => listener());
+}
+
+export function subscribeApiLoading(listener: () => void): () => void {
+  apiLoadingListeners.add(listener);
+  return () => {
+    apiLoadingListeners.delete(listener);
+  };
+}
+
+export function getApiLoadingSnapshot(): boolean {
+  return activeApiCallCount > 0;
+}
+
+// Also detects auth/error conditions on every backend call, in this one
+// central place, so no individual button/handler needs its own logic for
+// this (see authEvents.ts + components/GlobalErrorModal.tsx):
+//   - 401 (token missing/invalid/expired) -> force logout + "session
+//     expired" popup. This always means the session itself is dead.
+//   - 5xx or the request never reaching the server at all (offline, DNS
+//     failure, backend down, etc.) -> generic error popup, but the user
+//     stays logged in since their session is still perfectly valid.
+// Deliberately NOT triggered for 403/400/404 etc. — those are normal
+// business-rule errors (e.g. "you don't have permission") that individual
+// screens already handle with their own specific messages.
+async function trackApiCall(run: () => Promise<Response>): Promise<Response> {
+  activeApiCallCount++;
+  notifyApiLoadingListeners();
+  try {
+    const response = await run();
+    if (response.status === 401) {
+      triggerSessionExpired();
+    } else if (response.status >= 500) {
+      triggerApiError('Something went wrong on our end. Please try again in a moment.');
+    }
+    return response;
+  } catch (err) {
+    triggerApiError('Unable to reach the server. Please check your connection and try again.');
+    throw err;
+  } finally {
+    activeApiCallCount--;
+    notifyApiLoadingListeners();
+  }
+}
+
 /**
  * Rewrites relative `/api/...` fetch calls to point at API_BASE_URL and
  * attaches the current auth token. Safe to call multiple times; only patches
@@ -56,21 +116,25 @@ export function installApiBaseUrlFetchPatch() {
 
   window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (typeof input === 'string' && input.startsWith('/api')) {
-      return originalFetch(API_BASE_URL + input, await withAuthHeader(init));
+      const authedInit = await withAuthHeader(init);
+      return trackApiCall(() => originalFetch(API_BASE_URL + input, authedInit));
     }
     if (input instanceof URL && input.pathname.startsWith('/api') && !input.host) {
-      return originalFetch(API_BASE_URL + input.pathname + input.search, await withAuthHeader(init));
+      const authedInit = await withAuthHeader(init);
+      return trackApiCall(() => originalFetch(API_BASE_URL + input.pathname + input.search, authedInit));
     }
     if (input instanceof Request && input.url.startsWith('/api')) {
-      const authedInit = await withAuthHeader({
-        method: input.method,
-        headers: input.headers,
-        body: input.body,
-        credentials: input.credentials,
-        mode: input.mode,
-        redirect: input.redirect
+      return trackApiCall(async () => {
+        const authedInit = await withAuthHeader({
+          method: input.method,
+          headers: input.headers,
+          body: input.body,
+          credentials: input.credentials,
+          mode: input.mode,
+          redirect: input.redirect
+        });
+        return originalFetch(new Request(API_BASE_URL + input.url, authedInit));
       });
-      return originalFetch(new Request(API_BASE_URL + input.url, authedInit));
     }
     return originalFetch(input, init);
   }) as typeof window.fetch;

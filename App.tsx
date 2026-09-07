@@ -21,6 +21,7 @@ import { MyProfile } from './components/MyProfile';
 import { ResidentMaintenanceView } from './components/ResidentMaintenanceView';
 import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt } from './types';
 import { supabase } from './supabaseClient';
+import { onSessionExpired, markManualSignOut } from './authEvents';
 import { 
   MOCK_SOCIETIES,
   MOCK_USERS,
@@ -426,10 +427,29 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    // Marks this as a deliberate, user-initiated sign-out so the
+    // SIGNED_OUT event it triggers doesn't also pop up the "session
+    // expired" modal (see authEvents.ts / supabaseClient.ts).
+    markManualSignOut();
     supabase.auth.signOut().catch((err) => console.error('Error signing out:', err));
     setCurrentUser(null);
     setCurrentView('FACILITIES');
   };
+
+  // Automatic logout on a real session problem — a 401 from our own
+  // backend (apiClient.ts) or Supabase itself invalidating the session
+  // (supabaseClient.ts). The GlobalErrorModal (mounted in index.tsx) shows
+  // the "Session Expired" message; this just performs the actual sign-out,
+  // which swaps the view to the login screen since it's conditioned on
+  // currentUser being set.
+  useEffect(() => {
+    const unsubscribe = onSessionExpired(() => {
+      supabase.auth.signOut().catch(() => {});
+      setCurrentUser(null);
+      setCurrentView('FACILITIES');
+    });
+    return unsubscribe;
+  }, []);
 
   // User Management
   const handleUpdateRole = async (uid: string, newRole: Role) => {

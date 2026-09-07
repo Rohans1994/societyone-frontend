@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { LanguageProvider } from './context/LanguageContext';
 import { installApiBaseUrlFetchPatch } from './apiClient';
+import { GlobalLoader } from './components/GlobalLoader';
+import { GlobalErrorModal } from './components/GlobalErrorModal';
 
 // Route relative /api/* fetch calls to the separated backend service.
 installApiBaseUrlFetchPatch();
@@ -17,6 +19,8 @@ root.render(
   <React.StrictMode>
     <LanguageProvider>
       <App />
+      <GlobalLoader />
+      <GlobalErrorModal />
     </LanguageProvider>
   </React.StrictMode>
 );

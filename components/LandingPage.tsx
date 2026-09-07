@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Society, User } from '../types';
 import { 
   Building2, 
@@ -13,7 +13,11 @@ import {
   MapPin, 
   Sparkles,
   ChevronRight,
-  CalendarCheck
+  CalendarCheck,
+  Check,
+  Play,
+  Pause,
+  Square
 } from 'lucide-react';
 import { CreateSocietyModal } from './CreateSocietyModal';
 import { Auth } from './Auth';
@@ -40,6 +44,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [authMode, setAuthMode] = useState<boolean>(false);
   const [preselectedSocietyId, setPreselectedSocietyId] = useState<string | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Demo clip playback controls (it autoplays muted on load — these let the
+  // visitor pause/stop it instead of it just running with no way to control it).
+  const demoVideoRef = useRef<HTMLVideoElement>(null);
+  const [isDemoPlaying, setIsDemoPlaying] = useState(true);
+
+  const handleDemoPlay = () => {
+    demoVideoRef.current?.play();
+    setIsDemoPlaying(true);
+  };
+
+  const handleDemoPause = () => {
+    demoVideoRef.current?.pause();
+    setIsDemoPlaying(false);
+  };
+
+  const handleDemoStop = () => {
+    const video = demoVideoRef.current;
+    if (video) {
+      video.pause();
+      video.currentTime = 0;
+    }
+    setIsDemoPlaying(false);
+  };
 
   const filteredSocieties = societies.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -188,6 +216,265 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
+      {/* See SocietyOne in Action — real product screenshots + a short demo clip */}
+      <section className="py-16 bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-600 mb-2">
+              {t('inActionTitle', 'See SocietyOne in Action')}
+            </h2>
+            <p className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
+              {t('inActionCaption', 'A resident booking a slot and paying via QR/UPI/bank transfer')}
+            </p>
+          </div>
+
+          {/* Demo clip: booking a paid amenity end-to-end, including the QR/UPI/bank payment step */}
+          <div className="max-w-4xl mx-auto mb-10">
+            <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-xl shadow-gray-200/60">
+              <video
+                ref={demoVideoRef}
+                className="w-full h-auto block"
+                src="/demo/booking-demo.mp4"
+                poster="/demo/booking-demo-poster.png"
+                autoPlay
+                loop
+                muted
+                playsInline
+                onPlay={() => setIsDemoPlaying(true)}
+                onPause={() => setIsDemoPlaying(false)}
+              />
+            </div>
+
+            {/* Play / Pause / Stop controls */}
+            <div className="flex items-center justify-center gap-3 mt-4">
+              <button
+                type="button"
+                onClick={handleDemoPlay}
+                disabled={isDemoPlaying}
+                className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5" /> {t('demoPlay', 'Play')}
+              </button>
+              <button
+                type="button"
+                onClick={handleDemoPause}
+                disabled={!isDemoPlaying}
+                className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Pause className="w-3.5 h-3.5" /> {t('demoPause', 'Pause')}
+              </button>
+              <button
+                type="button"
+                onClick={handleDemoStop}
+                className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-700 hover:bg-gray-50 transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Square className="w-3.5 h-3.5" /> {t('demoStop', 'Stop')}
+              </button>
+            </div>
+          </div>
+
+          {/* Supporting screenshots */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <figure className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+              <img src="/screenshots/dashboard.png" alt="SocietyOne admin dashboard" className="w-full h-auto block" />
+              <figcaption className="px-4 py-3 text-xs font-semibold text-gray-600 bg-gray-50 border-t border-gray-200">
+                {t('screenshotDashboard', 'Admin Dashboard')}
+              </figcaption>
+            </figure>
+            <figure className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+              <img src="/screenshots/amenities-management.png" alt="Amenities and facility booking management" className="w-full h-auto block" />
+              <figcaption className="px-4 py-3 text-xs font-semibold text-gray-600 bg-gray-50 border-t border-gray-200">
+                {t('screenshotAmenities', 'Amenities & Facility Management')}
+              </figcaption>
+            </figure>
+            <figure className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+              <img src="/screenshots/amc-assets.png" alt="AMC and asset tracking" className="w-full h-auto block" />
+              <figcaption className="px-4 py-3 text-xs font-semibold text-gray-600 bg-gray-50 border-t border-gray-200">
+                {t('screenshotAmc', 'AMC & Asset Tracking')}
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      {/* Feature Highlights Grid */}
+      <section className="py-16 bg-slate-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-600 mb-2">
+              {t('featuresTitle', 'Key Features Built for Modern Societies')}
+            </h2>
+            <p className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
+              {t('featuresSubtitle', 'Everything your residential complex needs in one integrated platform.')}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Feature 1 */}
+            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {t('feature6Title', 'AMC & Asset Tracking')}
+              </h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {t('feature6Desc', 'Manage equipment warranties, lift maintenance, and vendor contracts seamlessly.')}
+              </p>
+              <ul className="space-y-1.5 pt-1">
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                  <span>{t('feature6Bullet1', 'Warranty documents & AMC contract renewal dates in one place')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                  <span>{t('feature6Bullet2', 'Every asset linked to its vendor contract & coverage status')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                  <span>{t('feature6Bullet3', 'Get ahead of AMC expiry before contracts lapse')}</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 2 */}
+            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {t('tendorManagement', 'Tender Management')}
+              </h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {t('featuresSubtitle', 'Side-by-side vendor quotation analysis with automatic L1 best bid badging and proposal document attachments.')}
+              </p>
+              <ul className="space-y-1.5 pt-1">
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+                  <span>{t('tenderBullet1', 'Compare every vendor quotation side-by-side')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+                  <span>{t('tenderBullet2', 'Automatic L1 (lowest bid) badge highlights the best offer')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-blue-500 mt-0.5 shrink-0" />
+                  <span>{t('tenderBullet3', 'Attach and review proposal documents per vendor')}</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 3 */}
+            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                <Wallet className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {t('feature2Title', 'Automated Billing & Dues')}
+              </h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {t('feature2Desc', 'Generate maintenance invoices, pay online, and track expenses effortlessly.')}
+              </p>
+              <ul className="space-y-1.5 pt-1">
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-purple-500 mt-0.5 shrink-0" />
+                  <span>{t('billingBullet1', 'Auto-generate quarterly maintenance invoices per flat')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-purple-500 mt-0.5 shrink-0" />
+                  <span>{t('billingBullet2', 'Real-time income & expense finance overview')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-purple-500 mt-0.5 shrink-0" />
+                  <span>{t('billingBullet3', 'Track and follow up on overdue dues automatically')}</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 4 */}
+            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Users className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {t('residentsAndWings', 'Residents & Wings')}
+              </h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {t('featuresSubtitle', 'Role-isolated directory for owners and tenants across wings, complete with instant dues payment and ticket tracking.')}
+              </p>
+              <ul className="space-y-1.5 pt-1">
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <span>{t('residentsBullet1', 'Two-tier verification: email OTP + admin approval before login')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <span>{t('residentsBullet2', 'Organized by wing, flat number, and owner/tenant role')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <span>{t('residentsBullet3', 'Bulk import residents in one go via CSV')}</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 5 */}
+            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                <Wrench className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {t('feature3Title', 'Digital Helpdesk')}
+              </h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {t('feature3Desc', 'Raise maintenance tickets, track technician assignments, and resolve issues fast.')}
+              </p>
+              <ul className="space-y-1.5 pt-1">
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-rose-500 mt-0.5 shrink-0" />
+                  <span>{t('helpdeskBullet1', 'Residents raise tickets with photo attachments in seconds')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-rose-500 mt-0.5 shrink-0" />
+                  <span>{t('helpdeskBullet2', 'Admins assign technicians and track resolution status')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-rose-500 mt-0.5 shrink-0" />
+                  <span>{t('helpdeskBullet3', 'Full ticket history per resident and category')}</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Feature 6 */}
+            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                <CalendarCheck className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-gray-900 text-base">
+                {t('feature1Title', 'Instant Facility Booking')}
+              </h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                {t('feature1Desc', 'Book clubhouses, tennis courts, and swimming pools in real-time.')}
+              </p>
+              <ul className="space-y-1.5 pt-1">
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-cyan-500 mt-0.5 shrink-0" />
+                  <span>{t('bookingBullet1', 'Admin-defined multi-slot scheduling per amenity')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-cyan-500 mt-0.5 shrink-0" />
+                  <span>{t('bookingBullet2', 'Accept payments via QR code, UPI, or bank transfer')}</span>
+                </li>
+                <li className="flex items-start gap-2 text-xs text-gray-500">
+                  <Check className="w-3.5 h-3.5 text-cyan-500 mt-0.5 shrink-0" />
+                  <span>{t('bookingBullet3', 'Real-time conflict detection prevents double-booking')}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Live Registered Societies Directory Section */}
       <section className="py-12 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -281,100 +568,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </h4>
               <p className="text-xs text-gray-500 mt-1 max-w-[200px]">
                 {t('featuresSubtitle', 'Add custom wings, address, and create unique administrator access.')}
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Feature Highlights Grid */}
-      <section className="py-16 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-12">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-brand-600 mb-2">
-              {t('featuresTitle', 'Key Features Built for Modern Societies')}
-            </h2>
-            <p className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
-              {t('featuresSubtitle', 'Everything your residential complex needs in one integrated platform.')}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Feature 1 */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">
-                {t('feature6Title', 'AMC & Asset Tracking')}
-              </h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {t('feature6Desc', 'Manage equipment warranties, lift maintenance, and vendor contracts seamlessly.')}
-              </p>
-            </div>
-
-            {/* Feature 2 */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <FileSpreadsheet className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">
-                {t('tendorManagement', 'Tender Management')}
-              </h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {t('featuresSubtitle', 'Side-by-side vendor quotation analysis with automatic L1 best bid badging and proposal document attachments.')}
-              </p>
-            </div>
-
-            {/* Feature 3 */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                <Wallet className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">
-                {t('feature2Title', 'Automated Billing & Dues')}
-              </h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {t('feature2Desc', 'Generate maintenance invoices, pay online, and track expenses effortlessly.')}
-              </p>
-            </div>
-
-            {/* Feature 4 */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                <Users className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">
-                {t('residentsAndWings', 'Residents & Wings')}
-              </h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {t('featuresSubtitle', 'Role-isolated directory for owners and tenants across wings, complete with instant dues payment and ticket tracking.')}
-              </p>
-            </div>
-
-            {/* Feature 5 */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                <Wrench className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">
-                {t('feature3Title', 'Digital Helpdesk')}
-              </h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {t('feature3Desc', 'Raise maintenance tickets, track technician assignments, and resolve issues fast.')}
-              </p>
-            </div>
-
-            {/* Feature 6 */}
-            <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-sm space-y-3">
-              <div className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center">
-                <CalendarCheck className="w-5 h-5" />
-              </div>
-              <h3 className="font-bold text-gray-900 text-base">
-                {t('feature1Title', 'Instant Facility Booking')}
-              </h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
-                {t('feature1Desc', 'Book clubhouses, tennis courts, and swimming pools in real-time.')}
               </p>
             </div>
           </div>
