@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { Event, Notice, Role } from '../types';
-import { Calendar, MapPin, Clock, Plus, X, Edit2, Trash2, User, BellRing, AlertTriangle, Megaphone, Shield } from 'lucide-react';
+import { Event, Notice, Role, User as UserType } from '../types';
+import { Calendar, MapPin, Clock, Plus, X, Edit2, Trash2, User, BellRing, AlertTriangle, Megaphone, Shield, Lock, FileText } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { NoticeModal } from './NoticeModal';
+import { AuthedImg } from './AuthedImg';
 
 interface EventsProps {
   events: Event[];
   notices: Notice[];
   userRole: Role;
+  currentUser?: UserType | null;
   societyName?: string;
+  storageBucket?: string;
   onAddEvent: (event: Event) => void;
   onUpdateEvent: (event: Event) => void;
   onDeleteEvent: (id: string) => void;
@@ -20,7 +24,9 @@ export const Events: React.FC<EventsProps> = ({
   events, 
   notices = [],
   userRole, 
+  currentUser,
   societyName,
+  storageBucket,
   onAddEvent, 
   onUpdateEvent, 
   onDeleteEvent,
@@ -45,17 +51,17 @@ export const Events: React.FC<EventsProps> = ({
 
   // Notice Modal State
   const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
-  const [editingNoticeId, setEditingNoticeId] = useState<string | null>(null);
-  const [noticeForm, setNoticeForm] = useState({
-    title: '',
-    description: '',
-    category: 'General',
-    priority: 'Normal',
-    date: new Date().toISOString().split('T')[0],
-    createdByName: 'Managing Committee'
-  });
+  const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
 
   const canManage = userRole === Role.SuperAdmin || userRole === Role.WingAdmin;
+
+  // Residents (not admins) only ever receive broadcast notices plus their
+  // own targeted ones (enforced server-side too — see notices.ts), so any
+  // notice with a targetUid here is necessarily theirs. Split into two
+  // groups for display, same pattern as "My Open Tickets" vs "Open Tickets
+  // (Others)" in ResidentDashboard.tsx.
+  const myNotices = !canManage ? notices.filter(n => n.targetUid) : [];
+  const commonNotices = !canManage ? notices.filter(n => !n.targetUid) : notices;
 
   const handleOpenEventModal = (event?: Event) => {
     if (event) {
@@ -99,42 +105,15 @@ export const Events: React.FC<EventsProps> = ({
   };
 
   const handleOpenNoticeModal = (notice?: Notice) => {
-    if (notice) {
-      setEditingNoticeId(notice.id);
-      setNoticeForm({
-        title: notice.title,
-        description: notice.description,
-        category: notice.category || 'General',
-        priority: notice.priority || 'Normal',
-        date: notice.date,
-        createdByName: notice.createdByName || 'Managing Committee'
-      });
-    } else {
-      setEditingNoticeId(null);
-      setNoticeForm({
-        title: '',
-        description: '',
-        category: 'General',
-        priority: 'Normal',
-        date: new Date().toISOString().split('T')[0],
-        createdByName: 'Managing Committee'
-      });
-    }
+    setEditingNotice(notice || null);
     setIsNoticeModalOpen(true);
   };
 
-  const handleNoticeSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (editingNoticeId) {
-      onUpdateNotice({
-        id: editingNoticeId,
-        ...noticeForm
-      });
+  const handleNoticeSubmit = (notice: Notice) => {
+    if (editingNotice) {
+      onUpdateNotice(notice);
     } else {
-      onAddNotice({
-        id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        ...noticeForm
-      });
+      onAddNotice(notice);
     }
     setIsNoticeModalOpen(false);
   };
@@ -165,6 +144,94 @@ export const Events: React.FC<EventsProps> = ({
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
+
+  const isPdfAttachment = (url: string) => url.toLowerCase().includes('.pdf');
+
+  const renderNoticeCard = (notice: Notice) => (
+    <div 
+      key={notice.id} 
+      className="bg-white rounded-xl border border-gray-200 shadow-2xs hover:shadow-md transition p-5 flex flex-col justify-between group relative"
+    >
+      {/* Admin Actions */}
+      {canManage && (
+        <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white/95 backdrop-blur-xs p-1 rounded-lg border border-gray-200 shadow-xs">
+          <button 
+            onClick={() => handleOpenNoticeModal(notice)}
+            className="p-1.5 text-gray-600 hover:text-brand-600 hover:bg-brand-50 rounded transition cursor-pointer"
+            title="Edit Notice"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+          <button 
+            onClick={() => handleDeleteNotice(notice.id)}
+            className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
+            title="Delete Notice"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      <div>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${getNoticeCategoryBadge(notice.category)}`}>
+            {notice.category || 'General'}
+          </span>
+          {notice.priority === 'High' && (
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> {t('highPriority', 'High Priority')}
+            </span>
+          )}
+          {/* Admins browse every notice in one list — this badge is the only
+              way they can tell a targeted notice apart from a broadcast one. */}
+          {canManage && notice.targetUid && (
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full flex items-center gap-1">
+              <Lock className="w-3 h-3" /> {t('noticeToLabel', 'To')}: {notice.targetUserName || t('specificResident', 'Specific Resident')}
+            </span>
+          )}
+          <span className="text-xs text-gray-400 ml-auto">
+            {notice.date}
+          </span>
+        </div>
+
+        <h4 className="font-bold text-gray-900 text-base mb-2 group-hover:text-brand-600 transition-colors">
+          {notice.title}
+        </h4>
+
+        <p className="text-xs text-gray-600 line-clamp-4 leading-relaxed whitespace-pre-line">
+          {notice.description}
+        </p>
+
+        {notice.attachmentUrl && (
+          isPdfAttachment(notice.attachmentUrl) ? (
+            <a
+              href={notice.attachmentUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-100"
+            >
+              <FileText className="w-3.5 h-3.5" /> {t('viewPdfAttachment', 'View PDF Attachment')}
+            </a>
+          ) : (
+            <AuthedImg
+              src={notice.attachmentUrl}
+              alt="Notice attachment"
+              className="mt-3 w-full max-h-40 object-cover rounded-lg border border-gray-200"
+            />
+          )
+        )}
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+        <span className="flex items-center gap-1 font-medium text-gray-600">
+          <Shield className="w-3.5 h-3.5 text-brand-600" /> {notice.createdByName || 'Managing Committee'}
+        </span>
+        <span className="text-[11px] bg-gray-50 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
+          {notice.targetUid ? t('privateNotice', 'Private Notice') : t('officialNotice', 'Official Notice')}
+        </span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -249,102 +316,73 @@ export const Events: React.FC<EventsProps> = ({
 
       {/* 1. Official Notices Section */}
       {(activeTab === 'ALL' || activeTab === 'NOTICES') && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <Megaphone className="w-5 h-5 text-amber-600" />
-              {t('recentNotices', 'Recent Notices & Circulars')}
-              <span className="text-xs font-normal text-gray-500">({notices.length} {t('posted', 'posted')})</span>
-            </h3>
-            {canManage && activeTab === 'ALL' && (
-              <button
-                type="button"
-                onClick={() => handleOpenNoticeModal()}
-                className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 hover:underline cursor-pointer"
-              >
-                + {t('postNotice', 'Post Notice')}
-              </button>
-            )}
-          </div>
-
-          {notices.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {notices.map(notice => (
-                <div 
-                  key={notice.id} 
-                  className="bg-white rounded-xl border border-gray-200 shadow-2xs hover:shadow-md transition p-5 flex flex-col justify-between group relative"
-                >
-                  {/* Admin Actions */}
-                  {canManage && (
-                    <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-white/95 backdrop-blur-xs p-1 rounded-lg border border-gray-200 shadow-xs">
-                      <button 
-                        onClick={() => handleOpenNoticeModal(notice)}
-                        className="p-1.5 text-gray-600 hover:text-brand-600 hover:bg-brand-50 rounded transition cursor-pointer"
-                        title="Edit Notice"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteNotice(notice.id)}
-                        className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
-                        title="Delete Notice"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${getNoticeCategoryBadge(notice.category)}`}>
-                        {notice.category || 'General'}
-                      </span>
-                      {notice.priority === 'High' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> {t('highPriority', 'High Priority')}
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-400 ml-auto">
-                        {notice.date}
-                      </span>
-                    </div>
-
-                    <h4 className="font-bold text-gray-900 text-base mb-2 group-hover:text-brand-600 transition-colors">
-                      {notice.title}
-                    </h4>
-
-                    <p className="text-xs text-gray-600 line-clamp-4 leading-relaxed whitespace-pre-line">
-                      {notice.description}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                    <span className="flex items-center gap-1 font-medium text-gray-600">
-                      <Shield className="w-3.5 h-3.5 text-brand-600" /> {notice.createdByName || 'Managing Committee'}
-                    </span>
-                    <span className="text-[11px] bg-gray-50 text-gray-600 px-2 py-0.5 rounded border border-gray-200">
-                      {t('officialNotice', 'Official Notice')}
-                    </span>
-                  </div>
+        <div className="space-y-6">
+          {/* Residents get their own targeted notices shown separately from
+              general/broadcast ones. Admins see one unified list (with a
+              "To:" badge on targeted notices, from renderNoticeCard above). */}
+          {!canManage && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-blue-600" />
+                  {t('noticesForYou', 'Notices For You')}
+                  <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full font-semibold">
+                    {myNotices.length}
+                  </span>
+                </h3>
+              </div>
+              {myNotices.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {myNotices.map(renderNoticeCard)}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl p-8 border border-dashed border-gray-200 text-center">
-              <BellRing className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm font-semibold text-gray-700">{t('noNoticesPublished', 'No notices published yet')}</p>
-              <p className="text-xs text-gray-500 mt-1">{t('publishNoticesDesc', 'Publish notifications and announcements for residents.')}</p>
-              {canManage && (
-                <button
-                  type="button"
-                  onClick={() => handleOpenNoticeModal()}
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold bg-amber-50 text-amber-800 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" /> {t('postFirstNotice', 'Post First Notice')}
-                </button>
+              ) : (
+                <div className="bg-white rounded-xl p-6 border border-dashed border-gray-200 text-center">
+                  <Lock className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-gray-700">{t('noPersonalNotices', 'No notices addressed to you yet')}</p>
+                </div>
               )}
             </div>
           )}
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Megaphone className="w-5 h-5 text-amber-600" />
+                {canManage ? t('recentNotices', 'Recent Notices & Circulars') : t('generalNotices', 'General Society Notices')}
+                <span className="text-xs font-normal text-gray-500">({commonNotices.length} {t('posted', 'posted')})</span>
+              </h3>
+              {canManage && activeTab === 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenNoticeModal()}
+                  className="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 hover:underline cursor-pointer"
+                >
+                  + {t('postNotice', 'Post Notice')}
+                </button>
+              )}
+            </div>
+
+            {commonNotices.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {commonNotices.map(renderNoticeCard)}
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl p-8 border border-dashed border-gray-200 text-center">
+                <BellRing className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-gray-700">{t('noNoticesPublished', 'No notices published yet')}</p>
+                <p className="text-xs text-gray-500 mt-1">{t('publishNoticesDesc', 'Publish notifications and announcements for residents.')}</p>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenNoticeModal()}
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold bg-amber-50 text-amber-800 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> {t('postFirstNotice', 'Post First Notice')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -556,104 +594,14 @@ export const Events: React.FC<EventsProps> = ({
         </div>
       )}
 
-      {/* Modal: Create / Edit Notice */}
-      {isNoticeModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="bg-amber-600 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold text-lg flex items-center gap-2">
-                <BellRing className="w-5 h-5" />
-                {editingNoticeId ? t('editNotice', 'Edit Society Notice') : t('createNotice', 'Post Official Notice')}
-              </h3>
-              <button onClick={() => setIsNoticeModalOpen(false)} className="text-white hover:bg-amber-700 p-1 rounded-full cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleNoticeSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{t('noticeTitle', 'Notice Title')}</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Scheduled Water Tank Cleaning - Wing A & B"
-                  value={noticeForm.title}
-                  onChange={e => setNoticeForm({ ...noticeForm, title: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{t('category', 'Category')}</label>
-                  <select
-                    value={noticeForm.category}
-                    onChange={e => setNoticeForm({ ...noticeForm, category: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                  >
-                    <option value="General">{t('general', 'General')}</option>
-                    <option value="Maintenance">{t('maintenance', 'Maintenance')}</option>
-                    <option value="Urgent">{t('urgent', 'Urgent')}</option>
-                    <option value="Security">{t('security', 'Security')}</option>
-                    <option value="Celebration">{t('celebration', 'Celebration')}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{t('priority', 'Priority Level')}</label>
-                  <select
-                    value={noticeForm.priority}
-                    onChange={e => setNoticeForm({ ...noticeForm, priority: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                  >
-                    <option value="Normal">{t('normal', 'Normal')}</option>
-                    <option value="High">{t('highPriority', 'High Priority')}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{t('issuedBy', 'Issued By')}</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Managing Committee / Hon. Secretary"
-                  value={noticeForm.createdByName}
-                  onChange={e => setNoticeForm({ ...noticeForm, createdByName: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">{t('noticeContent', 'Notice Content & Instructions')}</label>
-                <textarea
-                  rows={4}
-                  required
-                  placeholder="Provide full announcement details, time windows, contact persons..."
-                  value={noticeForm.description}
-                  onChange={e => setNoticeForm({ ...noticeForm, description: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setIsNoticeModalOpen(false)}
-                  className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
-                >
-                  {t('cancel', 'Cancel')}
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm cursor-pointer"
-                >
-                  {editingNoticeId ? t('saveChanges', 'Save Changes') : t('publishNotice', 'Publish Notice')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Modal: Create / Edit Notice (shared with User Management's "Send Notice" action) */}
+      <NoticeModal
+        isOpen={isNoticeModalOpen}
+        onClose={() => setIsNoticeModalOpen(false)}
+        onSubmit={handleNoticeSubmit}
+        editingNotice={editingNotice}
+        storageBucket={storageBucket}
+      />
     </div>
   );
 };

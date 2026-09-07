@@ -269,6 +269,15 @@ export interface Notice {
   createdBy?: string;
   createdByName?: string;
   societyId?: string;
+  // Optional image or PDF attached to the notice (stored under a notices/
+  // folder in the society's storage bucket).
+  attachmentUrl?: string;
+  // When set, this notice is only visible to that one resident (an admin
+  // sending a notice to a specific person from User Management) instead of
+  // being a broadcast/common notice visible to everyone. targetUserName is
+  // denormalized purely for display in admin views (e.g. "To: Jane Doe").
+  targetUid?: string;
+  targetUserName?: string;
 }
 
 export interface Transaction {

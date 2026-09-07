@@ -1,36 +1,45 @@
 import React, { useState } from 'react';
-import { User, Role } from '../types';
-import { Shield, User as UserIcon, CheckCircle, Search, Trash2, Plus, X, Home, Mail, Check, Clock, UserCheck, AlertCircle, Phone, CheckCircle2, ShieldCheck, KeyRound, Upload } from 'lucide-react';
+import { User, Role, Notice } from '../types';
+import { Shield, User as UserIcon, CheckCircle, Search, Trash2, Plus, X, Home, Mail, Check, Clock, UserCheck, AlertCircle, Phone, CheckCircle2, ShieldCheck, KeyRound, Upload, BellRing } from 'lucide-react';
 import { WINGS } from '../constants';
 import { BulkImportModal, BulkImportSummary } from './BulkImportModal';
 import { AuthedImg } from './AuthedImg';
+import { NoticeModal } from './NoticeModal';
 
 interface UserManagementProps {
   users: User[];
   wings?: string[];
   societyName?: string;
+  storageBucket?: string;
   onUpdateRole: (uid: string, newRole: Role) => void;
   onDeleteUser: (uid: string) => void;
   onAddUser: (user: User) => void;
   onApproveUser?: (uid: string) => void;
   onBulkImportResidents?: (rows: Record<string, string>[]) => Promise<BulkImportSummary>;
+  onAddNotice?: (notice: Notice) => void;
 }
 
 export const UserManagement: React.FC<UserManagementProps> = ({ 
   users, 
   wings = WINGS, 
   societyName,
+  storageBucket,
   onUpdateRole, 
   onDeleteUser, 
   onAddUser,
   onApproveUser,
-  onBulkImportResidents
+  onBulkImportResidents,
+  onAddNotice
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'APPROVED' | 'PENDING'>('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
+  // Resident currently targeted by the "Send Notice" action (one at a time,
+  // same as every other row action in this screen). Opens the shared
+  // NoticeModal with this resident locked as the recipient.
+  const [noticeTargetUser, setNoticeTargetUser] = useState<User | null>(null);
 
   const handleConfirmDeleteUser = () => {
     if (!deleteConfirmUser) return;
@@ -187,6 +196,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm"
                     >
                       <Check className="w-3.5 h-3.5" /> Approve Access
+                    </button>
+                  )}
+                  {onAddNotice && (
+                    <button
+                      onClick={() => setNoticeTargetUser(user)}
+                      className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
+                      title="Send Notice"
+                    >
+                      <BellRing className="w-4 h-4" />
                     </button>
                   )}
                   <button
@@ -346,6 +364,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         </select>
                       </td>
                       <td className="px-6 py-4 text-right">
+                        {onAddNotice && (
+                          <button 
+                            onClick={() => setNoticeTargetUser(user)}
+                            className="text-amber-500 hover:text-amber-700 p-2 hover:bg-amber-50 rounded-full transition"
+                            title="Send Notice"
+                          >
+                            <BellRing className="w-4 h-4" />
+                          </button>
+                        )}
                         <button 
                           onClick={() => setDeleteConfirmUser(user)}
                           className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-full transition"
@@ -477,6 +504,26 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           templateColumns={['name', 'email', 'phone', 'wing', 'apartmentNo', 'password']}
           templateSampleRow={['Jane Doe', 'jane.doe@example.com', '9876543210', 'A', '101', '']}
           onImport={onBulkImportResidents}
+        />
+      )}
+
+      {/* Send Notice Modal — same shared modal as Events & Notices, locked to
+          the one resident whose row triggered it, so it's only visible to them. */}
+      {onAddNotice && (
+        <NoticeModal
+          isOpen={Boolean(noticeTargetUser)}
+          onClose={() => setNoticeTargetUser(null)}
+          onSubmit={(notice) => {
+            onAddNotice(notice);
+            setNoticeTargetUser(null);
+          }}
+          storageBucket={storageBucket}
+          lockedTarget={noticeTargetUser ? {
+            uid: noticeTargetUser.uid,
+            name: noticeTargetUser.name,
+            wing: noticeTargetUser.wing,
+            apartmentNo: noticeTargetUser.apartmentNo
+          } : undefined}
         />
       )}
     </div>

@@ -15,7 +15,8 @@ import {
   Shield, 
   Wallet,
   ArrowRight,
-  FileText
+  FileText,
+  Lock
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency, isResidentInvoiceMatch } from '../constants';
@@ -238,11 +239,28 @@ export const ResidentDashboard: React.FC<ResidentDashboardProps> = ({
                    <div className="space-y-3">
                       {recentNotices.slice(0, 3).map(notice => {
                          const isHigh = notice.priority === 'High';
+                         // Notices addressed specifically to this resident (see
+                         // Events.tsx / User Management's "Send Notice" action)
+                         // are highlighted so they don't get lost among general
+                         // society-wide notices in this shared, date-sorted list.
+                         const isPersonal = Boolean(notice.targetUid);
                          return (
-                            <div key={notice.id} className="p-3.5 rounded-xl bg-gray-50/70 border border-gray-100 hover:border-amber-200 transition">
+                            <div
+                              key={notice.id}
+                              className={`p-3.5 rounded-xl border transition ${
+                                isPersonal
+                                  ? 'bg-blue-50 border-blue-300 ring-1 ring-blue-200 shadow-sm'
+                                  : 'bg-gray-50/70 border-gray-100 hover:border-amber-200'
+                              }`}
+                            >
                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                   <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isHigh ? 'bg-red-500 animate-pulse' : 'bg-amber-500'}`}></span>
                                   <span className="font-bold text-gray-900 text-xs truncate flex-1">{notice.title}</span>
+                                  {isPersonal && (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-blue-600 text-white rounded-full flex items-center gap-0.5 shrink-0">
+                                      <Lock className="w-2.5 h-2.5" /> {t('noticeForYou', 'For You')}
+                                    </span>
+                                  )}
                                   <span className="text-[10px] text-gray-400 font-medium whitespace-nowrap">{notice.date}</span>
                                 </div>
                                <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed pl-4">

@@ -1220,7 +1220,9 @@ const App: React.FC = () => {
             events={societyEvents} 
             notices={societyNotices}
             userRole={currentUser.role} 
+            currentUser={currentUser}
             societyName={activeSociety?.name}
+            storageBucket={activeSociety?.storageBucket}
             onAddEvent={handleAddEvent} 
             onUpdateEvent={handleUpdateEvent} 
             onDeleteEvent={handleDeleteEvent}
@@ -1241,11 +1243,13 @@ const App: React.FC = () => {
             users={societyResidents} 
             wings={activeSociety?.wings}
             societyName={activeSociety?.name}
+            storageBucket={activeSociety?.storageBucket}
             onUpdateRole={handleUpdateRole} 
             onDeleteUser={handleDeleteUser} 
             onAddUser={handleAddUser} 
             onApproveUser={handleApproveUser}
             onBulkImportResidents={handleBulkImportResidents}
+            onAddNotice={handleAddNotice}
           />
         ) : (
           <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
