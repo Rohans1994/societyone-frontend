@@ -11,8 +11,6 @@
     "build:android": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.1",
-    "@capacitor/cli": "^8.5.1",
     "@capacitor/core": "^8.5.1",
     "@capacitor/push-notifications": "^8.1.2",
     "@google/genai": "^1.38.0",
@@ -25,6 +23,8 @@
     "recharts": "^3.7.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
     "@types/node": "^22.14.0",
     "@types/papaparse": "^5.5.2",
     "@vitejs/plugin-react": "^5.0.0",
