@@ -22,6 +22,7 @@ import { ResidentMaintenanceView } from './components/ResidentMaintenanceView';
 import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt } from './types';
 import { supabase } from './supabaseClient';
 import { onSessionExpired, markManualSignOut } from './authEvents';
+import { initializePushNotifications, unregisterPushNotifications } from './services/pushNotifications';
 import { 
   MOCK_SOCIETIES,
   MOCK_USERS,
@@ -431,6 +432,7 @@ const App: React.FC = () => {
     // SIGNED_OUT event it triggers doesn't also pop up the "session
     // expired" modal (see authEvents.ts / supabaseClient.ts).
     markManualSignOut();
+    unregisterPushNotifications().catch(() => {});
     supabase.auth.signOut().catch((err) => console.error('Error signing out:', err));
     setCurrentUser(null);
     setCurrentView('FACILITIES');
@@ -444,12 +446,22 @@ const App: React.FC = () => {
   // currentUser being set.
   useEffect(() => {
     const unsubscribe = onSessionExpired(() => {
+      unregisterPushNotifications().catch(() => {});
       supabase.auth.signOut().catch(() => {});
       setCurrentUser(null);
       setCurrentView('FACILITIES');
     });
     return unsubscribe;
   }, []);
+
+  // Register this device for push notifications (Android app only — a
+  // no-op on the plain website) once a resident/admin is actually signed
+  // in, so the backend has a device token to push notices/events to.
+  useEffect(() => {
+    if (currentUser) {
+      initializePushNotifications().catch(() => {});
+    }
+  }, [currentUser?.uid]);
 
   // User Management
   const handleUpdateRole = async (uid: string, newRole: Role) => {

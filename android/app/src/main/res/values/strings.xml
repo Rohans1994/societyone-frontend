@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SocietyOne</string>
+    <string name="title_activity_main">SocietyOne</string>
+    <string name="package_name">com.societyone.app</string>
+    <string name="custom_url_scheme">com.societyone.app</string>
+</resources>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Testing only: allows plain HTTP (not HTTPS) to specific hosts. Android
+  blocks cleartext traffic to any host by default since API 28 — these are
+  narrow, explicit exceptions for just these hosts rather than a blanket
+  allow for all hosts.
+
+  - 192.168.0.234: developer machine's LAN IP, for local `npm run dev` testing.
+  - 13.233.155.143: AWS test instance (no domain/HTTPS set up there yet;
+    backend on :8084, frontend on :8083).
+
+  Update/remove these once real deployments have a domain + HTTPS.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.0.234</domain>
+        <domain includeSubdomains="false">13.233.155.143</domain>
+    </domain-config>
+</network-security-config>
