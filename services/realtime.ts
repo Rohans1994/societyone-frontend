@@ -37,6 +37,12 @@ export async function connectRealtime(): Promise<Socket | null> {
   socket.on('connect_error', (err) => {
     console.warn('[Realtime] Connection error:', err.message);
   });
+  socket.on('connect', () => {
+    console.log('[Realtime] Connected, socket id:', socket!.id);
+  });
+  socket.on('disconnect', (reason) => {
+    console.log('[Realtime] Disconnected, reason:', reason);
+  });
 
   return socket;
 }
