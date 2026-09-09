@@ -118,16 +118,16 @@ export const Events: React.FC<EventsProps> = ({
     setIsNoticeModalOpen(false);
   };
 
-  const handleDeleteEvent = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this event?')) {
-      onDeleteEvent(id);
-    }
-  };
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'event' | 'notice'; id: string; title: string } | null>(null);
 
-  const handleDeleteNotice = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this notice?')) {
-      onDeleteNotice(id);
+  const handleConfirmDelete = () => {
+    if (!deleteConfirm) return;
+    if (deleteConfirm.type === 'event') {
+      onDeleteEvent(deleteConfirm.id);
+    } else {
+      onDeleteNotice(deleteConfirm.id);
     }
+    setDeleteConfirm(null);
   };
 
   const getNoticeCategoryBadge = (category?: string) => {
@@ -163,7 +163,7 @@ export const Events: React.FC<EventsProps> = ({
             <Edit2 className="w-3.5 h-3.5" />
           </button>
           <button 
-            onClick={() => handleDeleteNotice(notice.id)}
+            onClick={() => setDeleteConfirm({ type: 'notice', id: notice.id, title: notice.title })}
             className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
             title="Delete Notice"
           >
@@ -421,7 +421,7 @@ export const Events: React.FC<EventsProps> = ({
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button 
-                        onClick={() => handleDeleteEvent(event.id)}
+                        onClick={() => setDeleteConfirm({ type: 'event', id: event.id, title: event.title })}
                         className="p-2 bg-white/90 backdrop-blur-sm rounded-full text-red-500 hover:text-red-700 shadow-sm cursor-pointer"
                         title="Delete Event"
                       >
@@ -602,6 +602,41 @@ export const Events: React.FC<EventsProps> = ({
         editingNotice={editingNotice}
         storageBucket={storageBucket}
       />
+
+      {/* Delete Confirmation Modal (shared by Events and Notices) */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-gray-900">
+                Delete this {deleteConfirm.type === 'event' ? 'Event' : 'Notice'}?
+              </h4>
+              <p className="text-xs text-gray-500 mt-1">
+                Are you sure you want to remove <strong>{deleteConfirm.title}</strong>? This cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

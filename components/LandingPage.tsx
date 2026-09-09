@@ -23,6 +23,22 @@ import { CreateSocietyModal } from './CreateSocietyModal';
 import { Auth } from './Auth';
 import { LanguageSelector } from './LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
+import dummySocieties from '../data/dummySocieties.json';
+
+// The "Available Societies" showcase grid below is purely illustrative —
+// static example content, not a live directory — so it intentionally does
+// NOT read from the real `societies` prop (which stays wired to the actual
+// /api/societies data everywhere else, e.g. the real Select Society dropdown
+// inside <Auth>). Only the fields actually rendered by that grid are needed
+// here, so this doesn't need the full Society type (e.g. no adminEmail).
+interface DummySociety {
+  id: string;
+  name: string;
+  address: string;
+  city?: string;
+  pincode: string;
+  wings: string[];
+}
 
 interface LandingPageProps {
   societies: Society[];
@@ -69,7 +85,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setIsDemoPlaying(false);
   };
 
-  const filteredSocieties = societies.filter(s => 
+  const filteredSocieties = (dummySocieties as DummySociety[]).filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.pincode.includes(searchQuery) ||
@@ -546,7 +562,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={() => handleOpenLoginForSociety(society.id)}
+                    onClick={() => handleOpenLoginForSociety()}
                     className="px-3.5 py-1.5 text-xs font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 rounded-lg transition flex items-center gap-1 cursor-pointer"
                   >
                     {t('signIn', 'Select & Login')} <ChevronRight className="w-3.5 h-3.5" />

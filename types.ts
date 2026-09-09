@@ -280,6 +280,33 @@ export interface Notice {
   targetUserName?: string;
 }
 
+export type VisitorRequestStatus = 'Pending' | 'Approved' | 'Denied';
+
+// A guard (currently the admin login — no separate Guard role exists yet)
+// logs a visitor at the main gate against one specific resident (this
+// society allows only one registered owner per flat, so targeting a
+// resident is equivalent to targeting "this flat"). The resident
+// approves/denies in real time. No auto-expiry — an unanswered request just
+// stays 'Pending' and the guard follows up by phone.
+export interface VisitorRequest {
+  id: string;
+  societyId?: string;
+  residentUid: string;
+  residentName?: string;
+  wing?: string;
+  apartmentNo?: string;
+  visitorName: string;
+  visitorPhone?: string;
+  purpose?: string;
+  // Stored under a visitors/ folder in the society's storage bucket.
+  photoUrl?: string;
+  status: VisitorRequestStatus;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: string;
+  respondedAt?: string;
+}
+
 export interface Transaction {
   id: string;
   title: string;
@@ -318,4 +345,4 @@ export interface Tendor {
   societyId?: string;
 }
 
-export type ViewState = 'DASHBOARD' | 'RESIDENT_DASHBOARD' | 'AMC' | 'RESIDENTS' | 'FACILITIES' | 'AMENITIES' | 'FINANCE' | 'INVOICES_FULL' | 'HELPDESK' | 'SECURITY' | 'USER_MANAGEMENT' | 'EVENTS' | 'VENDORS' | 'FISHBOWL' | 'TENDORS' | 'MAINTENANCE' | 'MY_PROFILE';
+export type ViewState = 'DASHBOARD' | 'RESIDENT_DASHBOARD' | 'AMC' | 'RESIDENTS' | 'FACILITIES' | 'AMENITIES' | 'FINANCE' | 'INVOICES_FULL' | 'HELPDESK' | 'SECURITY' | 'USER_MANAGEMENT' | 'EVENTS' | 'VENDORS' | 'FISHBOWL' | 'TENDORS' | 'MAINTENANCE' | 'MY_PROFILE' | 'VISITORS';

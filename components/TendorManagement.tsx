@@ -48,6 +48,7 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTendor, setEditingTendor] = useState<Tendor | null>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
     // Form inputs state
     const [tendorName, setTendorName] = useState('');
@@ -330,10 +331,10 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
         }
     };
 
-    const handleDelete = (id: string) => {
-        if (confirm('Are you sure you want to delete this tender?')) {
-            onDeleteTendor(id);
-        }
+    const handleConfirmDelete = () => {
+        if (!deleteConfirm) return;
+        onDeleteTendor(deleteConfirm.id);
+        setDeleteConfirm(null);
     };
 
     const filteredTendors = tendors.filter(t => 
@@ -413,7 +414,7 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
                                                 <Edit2 className="w-4 h-4" />
                                             </button>
                                             <button 
-                                                onClick={() => handleDelete(tendor.id)}
+                                                onClick={() => setDeleteConfirm({ id: tendor.id, name: tendor.name })}
                                                 className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition"
                                                 title="Delete Tendor"
                                             >
@@ -687,6 +688,39 @@ export const TendorManagement: React.FC<TendorManagementProps> = ({
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {deleteConfirm && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
+                        <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                            <Trash2 className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h4 className="text-base font-bold text-gray-900">Delete this Tendor?</h4>
+                            <p className="text-xs text-gray-500 mt-1">
+                                Are you sure you want to remove <strong>{deleteConfirm.name}</strong>? All submitted quotations and proposal documents will also be permanently deleted. This cannot be undone.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 justify-center pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeleteConfirm(null)}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmDelete}
+                                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+                            >
+                                Confirm Delete
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

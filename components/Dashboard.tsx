@@ -381,7 +381,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
                 <h3 className="text-lg font-bold text-gray-900 mb-4">{t('quickActions', 'Quick Actions')}</h3>
                 <div className="grid grid-cols-2 gap-4">
-                    <button className="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition text-left cursor-pointer">
+                    <button onClick={() => onNavigate('SECURITY')} className="bg-white p-4 rounded-lg shadow-sm hover:shadow-md transition text-left cursor-pointer">
                         <span className="block font-semibold text-brand-600 mb-1">+ {t('myPasses', 'New Visitor')}</span>
                         <span className="text-xs text-gray-500">{t('createGatePass', 'Create gate pass')}</span>
                     </button>

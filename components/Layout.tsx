@@ -1,6 +1,6 @@
 import React, { ReactNode } from 'react';
 import { Role, ViewState } from '../types';
-import { LayoutDashboard, Users, Wrench, Wallet, Building2, ShieldCheck, Menu, Bell, User as UserIcon, LogOut, Lock, Calendar, Home, Briefcase, Waves, ClipboardList, Sparkles, ReceiptText } from 'lucide-react';
+import { LayoutDashboard, Users, Wrench, Wallet, Building2, ShieldCheck, Menu, User as UserIcon, LogOut, Lock, Calendar, Home, Briefcase, Waves, ClipboardList, Sparkles, ReceiptText, DoorOpen } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSelector } from './LanguageSelector';
 import { AuthedImg } from './AuthedImg';
@@ -140,6 +140,12 @@ export const Layout: React.FC<LayoutProps> = ({
                 active={currentView === 'TENDORS'} 
                 onClick={() => { onChangeView('TENDORS'); setIsSidebarOpen(false); }} 
               />
+              <NavItem 
+                icon={DoorOpen} 
+                label={t('gateManagement', 'Gate Management')} 
+                active={currentView === 'SECURITY'} 
+                onClick={() => { onChangeView('SECURITY'); setIsSidebarOpen(false); }} 
+              />
               {isSuperAdmin && (
                   <NavItem 
                     icon={Lock} 
@@ -164,6 +170,12 @@ export const Layout: React.FC<LayoutProps> = ({
                 label={t('maintenance', 'Maintenance')} 
                 active={currentView === 'MAINTENANCE'} 
                 onClick={() => { onChangeView('MAINTENANCE'); setIsSidebarOpen(false); }} 
+              />
+              <NavItem 
+                icon={DoorOpen} 
+                label={t('visitors', 'Visitors')} 
+                active={currentView === 'VISITORS'} 
+                onClick={() => { onChangeView('VISITORS'); setIsSidebarOpen(false); }} 
               />
             </>
           )}
@@ -261,10 +273,6 @@ export const Layout: React.FC<LayoutProps> = ({
                     <p className="text-sm font-semibold text-gray-900 leading-none">{userName}</p>
                     <p className="text-xs text-gray-500 mt-0.5">{userRole}</p>
                 </div>
-             </button>
-             <button className="relative p-2 text-gray-500 hover:bg-gray-100 rounded-full transition">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
              </button>
           </div>
         </header>

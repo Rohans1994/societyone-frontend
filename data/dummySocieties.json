@@ -1,0 +1,50 @@
+[
+  {
+    "id": "dummy-1",
+    "name": "Green Valley Residency",
+    "address": "Plot 14, Baner Road",
+    "city": "Pune",
+    "pincode": "411045",
+    "wings": ["Wing A", "Wing B", "Wing C"]
+  },
+  {
+    "id": "dummy-2",
+    "name": "Arkade Earth",
+    "address": "LBS Marg, Mulund West",
+    "city": "Mumbai",
+    "pincode": "400080",
+    "wings": ["Wing A", "Wing B", "Wing C", "Wing D"]
+  },
+  {
+    "id": "dummy-3",
+    "name": "Sunshine Heights",
+    "address": "Whitefield Main Road",
+    "city": "Bengaluru",
+    "pincode": "560066",
+    "wings": ["Tower 1", "Tower 2"]
+  },
+  {
+    "id": "dummy-4",
+    "name": "Palm Grove Enclave",
+    "address": "OMR, Perungudi",
+    "city": "Chennai",
+    "pincode": "600096",
+    "wings": ["Wing A", "Wing B"]
+  },
+  {
+    "id": "dummy-5",
+    "name": "Lakeview Towers",
+    "address": "Salt Lake Sector V",
+    "city": "Kolkata",
+    "pincode": "700091",
+    "wings": ["Tower 1", "Tower 2", "Tower 3"]
+  },
+  {
+    "id": "dummy-6",
+    "name": "Silver Oak Residency",
+    "address": "Sector 62, Noida",
+    "city": "Noida",
+    "pincode": "201309",
+    "wings": ["Wing A", "Wing B", "Wing C"]
+  }
+]

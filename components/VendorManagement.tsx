@@ -16,6 +16,7 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
     const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
+    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string; warning?: string } | null>(null);
 
     const [formData, setFormData] = useState<Omit<Vendor, 'id' | 'status'>>({
         name: '',
@@ -68,32 +69,33 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
         setIsModalOpen(true);
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDeleteClick = async (vendor: Vendor) => {
         // Check whether this vendor is still referenced by any AMC contracts
         // or tendor quotations first, and warn about it in the confirmation
-        // if so — those references are plain text (no foreign key), so they
-        // won't be automatically cleaned up or updated by this deletion.
+        // modal if so — those references are plain text (no foreign key), so
+        // they won't be automatically cleaned up or updated by this deletion.
+        let warning: string | undefined;
         try {
-            const res = await fetch(`/api/vendors/${id}/usage`);
+            const res = await fetch(`/api/vendors/${vendor.id}/usage`);
             if (res.ok) {
                 const { amcCount, quotationCount } = await res.json();
                 if (amcCount > 0 || quotationCount > 0) {
                     const parts: string[] = [];
                     if (amcCount > 0) parts.push(`${amcCount} AMC contract${amcCount > 1 ? 's' : ''}`);
                     if (quotationCount > 0) parts.push(`${quotationCount} tendor quotation${quotationCount > 1 ? 's' : ''}`);
-                    if (confirm(`Warning: this vendor is still referenced by ${parts.join(' and ')}. Those references will not be updated automatically. Delete this vendor anyway?`)) {
-                        onDeleteVendor(id);
-                    }
-                    return;
+                    warning = `This vendor is still referenced by ${parts.join(' and ')}. Those references will not be updated automatically.`;
                 }
             }
         } catch (err) {
             console.warn('Could not check vendor usage before delete:', err);
         }
+        setDeleteConfirm({ id: vendor.id, name: vendor.name, warning });
+    };
 
-        if (confirm('Are you sure you want to remove this vendor?')) {
-            onDeleteVendor(id);
-        }
+    const handleConfirmDelete = () => {
+        if (!deleteConfirm) return;
+        onDeleteVendor(deleteConfirm.id);
+        setDeleteConfirm(null);
     };
 
     return (
@@ -144,7 +146,7 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
                                 </div>
                                 <div className="flex gap-2">
                                      <button onClick={() => handleEdit(vendor)} className="text-gray-400 hover:text-brand-600 p-1"><Edit2 className="w-4 h-4" /></button>
-                                     <button onClick={() => handleDelete(vendor.id)} className="text-gray-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4" /></button>
+                                     <button onClick={() => handleDeleteClick(vendor)} className="text-gray-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                             </div>
                             <h3 className="text-lg font-bold text-gray-900">{vendor.name}</h3>
@@ -229,6 +231,44 @@ export const VendorManagement: React.FC<VendorManagementProps> = ({ vendors, onA
                     templateSampleRow={['CoolAir Systems', 'AC', 'Rajesh Kumar', '9876543210', 'rajesh@coolair.com', 'Active']}
                     onImport={onBulkImportVendors}
                 />
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {deleteConfirm && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
+                        <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                            <Trash2 className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h4 className="text-base font-bold text-gray-900">Delete this Vendor?</h4>
+                            <p className="text-xs text-gray-500 mt-1">
+                                Are you sure you want to remove <strong>{deleteConfirm.name}</strong>? This cannot be undone.
+                            </p>
+                            {deleteConfirm.warning && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2 text-left">
+                                    <strong>Warning:</strong> {deleteConfirm.warning}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex gap-2 justify-center pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setDeleteConfirm(null)}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmDelete}
+                                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+                            >
+                                Confirm Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

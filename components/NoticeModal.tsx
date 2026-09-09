@@ -56,8 +56,15 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
     date: new Date().toISOString().split('T')[0],
     createdByName: 'Managing Committee'
   });
-  const [attachmentUrl, setAttachmentUrl] = useState('');
-  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  // The already-persisted attachment URL when editing an existing notice
+  // (untouched unless the admin picks a new file). A freshly picked file is
+  // held locally (not uploaded) until the notice is actually submitted —
+  // uploading on file-select would leave an orphaned file in storage if the
+  // admin picks an attachment and then cancels without publishing.
+  const [existingAttachmentUrl, setExistingAttachmentUrl] = useState('');
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachmentUploadError, setAttachmentUploadError] = useState('');
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,7 +79,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
         date: editingNotice.date,
         createdByName: editingNotice.createdByName || 'Managing Committee'
       });
-      setAttachmentUrl(editingNotice.attachmentUrl || '');
+      setExistingAttachmentUrl(editingNotice.attachmentUrl || '');
     } else {
       setForm({
         title: '',
@@ -82,53 +89,77 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
         date: new Date().toISOString().split('T')[0],
         createdByName: 'Managing Committee'
       });
-      setAttachmentUrl('');
+      setExistingAttachmentUrl('');
     }
+    setAttachmentFile(null);
+    setAttachmentPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return '';
+    });
     setAttachmentUploadError('');
   }, [isOpen, editingNotice]);
 
-  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Just holds the file + a local preview — nothing is uploaded yet. The
+  // actual upload only happens in handleSubmit, once the admin actually
+  // publishes/saves the notice.
+  const handleAttachmentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setIsUploadingAttachment(true);
     setAttachmentUploadError('');
-    try {
-      const base64Data = await convertToBase64(file);
-      const filename = `${Date.now()}_${file.name}`;
-      const uploadRes = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          // Society's dedicated bucket if available (falls back to the
-          // legacy shared 'assets' bucket), always under a notices/ folder.
-          bucket: storageBucket || 'assets',
-          filename: `notices/${filename}`,
-          contentBase64: base64Data,
-          mimeType: file.type || 'application/octet-stream'
-        })
-      });
-      if (!uploadRes.ok) {
-        throw new Error('Failed to upload attachment.');
-      }
-      const result = await uploadRes.json();
-      setAttachmentUrl(result.url);
-    } catch (err: any) {
-      setAttachmentUploadError(err.message || 'Failed to upload attachment.');
-    } finally {
-      setIsUploadingAttachment(false);
-      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
-    }
+    if (attachmentPreviewUrl) URL.revokeObjectURL(attachmentPreviewUrl);
+    setAttachmentFile(file);
+    setAttachmentPreviewUrl(URL.createObjectURL(file));
+    if (attachmentInputRef.current) attachmentInputRef.current.value = '';
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({
-      id: editingNotice ? editingNotice.id : `notif-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      ...form,
-      attachmentUrl: attachmentUrl || '',
-      targetUid: lockedTarget?.uid || '',
-      targetUserName: lockedTarget?.name || ''
+  const uploadAttachment = async (file: File): Promise<string> => {
+    const base64Data = await convertToBase64(file);
+    const filename = `${Date.now()}_${file.name}`;
+    const uploadRes = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        // Society's dedicated bucket if available (falls back to the
+        // legacy shared 'assets' bucket), always under a notices/ folder.
+        bucket: storageBucket || 'assets',
+        filename: `notices/${filename}`,
+        contentBase64: base64Data,
+        mimeType: file.type || 'application/octet-stream'
+      })
     });
+    if (!uploadRes.ok) {
+      throw new Error('Failed to upload attachment.');
+    }
+    const result = await uploadRes.json();
+    return result.url;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setAttachmentUploadError('');
+    try {
+      let attachmentUrl = existingAttachmentUrl;
+      if (attachmentFile) {
+        try {
+          attachmentUrl = await uploadAttachment(attachmentFile);
+        } catch (err: any) {
+          setAttachmentUploadError(err.message || 'Failed to upload attachment.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      onSubmit({
+        id: editingNotice ? editingNotice.id : `notif-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        ...form,
+        attachmentUrl: attachmentUrl || '',
+        targetUid: lockedTarget?.uid || '',
+        targetUserName: lockedTarget?.name || ''
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -236,10 +267,26 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
               <Paperclip className="w-3.5 h-3.5" /> {t('noticeAttachment', 'Attachment (Image or PDF)')}
             </label>
             <div className="flex items-center gap-3">
-              {attachmentUrl && (
-                isPdfUrl(attachmentUrl) ? (
+              {attachmentFile ? (
+                // Freshly picked, not-yet-uploaded file — local preview only.
+                attachmentFile.type === 'application/pdf' ? (
+                  <div
+                    className="w-14 h-14 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-red-500 shrink-0"
+                    title={attachmentFile.name}
+                  >
+                    <FileText className="w-6 h-6" />
+                  </div>
+                ) : (
+                  <img
+                    src={attachmentPreviewUrl}
+                    alt="Notice attachment"
+                    className="w-14 h-14 rounded-lg border border-gray-200 object-cover shrink-0"
+                  />
+                )
+              ) : existingAttachmentUrl && (
+                isPdfUrl(existingAttachmentUrl) ? (
                   <a
-                    href={attachmentUrl}
+                    href={existingAttachmentUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="w-14 h-14 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-red-500 shrink-0"
@@ -249,7 +296,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
                   </a>
                 ) : (
                   <AuthedImg
-                    src={attachmentUrl}
+                    src={existingAttachmentUrl}
                     alt="Notice attachment"
                     className="w-14 h-14 rounded-lg border border-gray-200 object-cover shrink-0"
                   />
@@ -258,17 +305,17 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
               <button
                 type="button"
                 onClick={() => attachmentInputRef.current?.click()}
-                disabled={isUploadingAttachment}
+                disabled={isSubmitting}
                 className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-700 hover:bg-gray-50 transition flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Upload className="w-3.5 h-3.5" />
-                {isUploadingAttachment ? 'Uploading...' : attachmentUrl ? 'Replace Attachment' : 'Upload Attachment'}
+                {(attachmentFile || existingAttachmentUrl) ? 'Replace Attachment' : 'Upload Attachment'}
               </button>
               <input
                 ref={attachmentInputRef}
                 type="file"
                 accept="image/*,application/pdf"
-                onChange={handleAttachmentUpload}
+                onChange={handleAttachmentSelect}
                 className="hidden"
               />
             </div>
@@ -281,15 +328,19 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
+              disabled={isSubmitting}
+              className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer disabled:opacity-50"
             >
               {t('cancel', 'Cancel')}
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm cursor-pointer"
+              disabled={isSubmitting}
+              className="px-5 py-2 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm cursor-pointer disabled:opacity-50"
             >
-              {isEditing ? t('saveChanges', 'Save Changes') : t('publishNotice', 'Publish Notice')}
+              {isSubmitting
+                ? (attachmentFile ? 'Uploading...' : 'Saving...')
+                : (isEditing ? t('saveChanges', 'Save Changes') : t('publishNotice', 'Publish Notice'))}
             </button>
           </div>
         </form>

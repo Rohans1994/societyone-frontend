@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { User, Event, Ticket, Booking, Notice, Invoice } from '../types';
+import React, { useMemo, useState } from 'react';
+import { User, Event, Ticket, Booking, Notice, Invoice, VisitorRequest } from '../types';
 import { 
   Calendar, 
   Bell, 
@@ -16,10 +16,13 @@ import {
   Wallet,
   ArrowRight,
   FileText,
-  Lock
+  Lock,
+  DoorOpen,
+  XCircle
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency, isResidentInvoiceMatch } from '../constants';
+import { AuthedImg } from './AuthedImg';
 
 interface ResidentDashboardProps {
   user: User;
@@ -28,6 +31,8 @@ interface ResidentDashboardProps {
   bookings: Booking[];
   notices?: Notice[];
   invoices?: Invoice[];
+  visitorRequests?: VisitorRequest[];
+  onRespondVisitorRequest?: (id: string, decision: 'Approved' | 'Denied') => Promise<void>;
   onNavigate: (view: any) => void;
 }
 
@@ -37,8 +42,12 @@ export const ResidentDashboard: React.FC<ResidentDashboardProps> = ({
   tickets, 
   notices = [],
   invoices = [],
+  visitorRequests = [],
+  onRespondVisitorRequest,
   onNavigate 
 }) => {
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [respondError, setRespondError] = useState('');
   const { t } = useLanguage();
   const upcomingEvents = events.filter(e => new Date(e.date) >= new Date()).slice(0, 2);
 
@@ -69,6 +78,27 @@ export const ResidentDashboard: React.FC<ResidentDashboardProps> = ({
 
   const topPendingInvoice = residentPendingInvoices[0];
 
+  // Visitor requests waiting at the gate for this resident specifically.
+  // Server-side, only requests with resident_uid === this user can even be
+  // fetched/responded to, so no extra client-side filtering is needed here.
+  const pendingVisitorRequests = useMemo(
+    () => visitorRequests.filter(v => v.status === 'Pending').sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [visitorRequests]
+  );
+
+  const handleRespond = async (id: string, decision: 'Approved' | 'Denied') => {
+    if (!onRespondVisitorRequest) return;
+    setRespondingId(id);
+    setRespondError('');
+    try {
+      await onRespondVisitorRequest(id, decision);
+    } catch (err: any) {
+      setRespondError(err.message || 'Failed to respond. Please try again.');
+    } finally {
+      setRespondingId(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
        {/* Header */}
@@ -79,6 +109,59 @@ export const ResidentDashboard: React.FC<ResidentDashboardProps> = ({
           </div>
           <div className="absolute right-0 bottom-0 w-40 h-40 bg-white/10 rounded-full blur-2xl translate-y-1/2 translate-x-1/4"></div>
        </div>
+
+       {/* Visitor(s) waiting at the gate — shown above everything else,
+           including maintenance dues, since a real person is physically
+           waiting for a response. Updates live via the socket listener
+           wired in App.tsx; no refresh needed. */}
+       {pendingVisitorRequests.length > 0 && (
+          <div className="space-y-3">
+             {respondError && (
+                <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg border border-red-200">{respondError}</div>
+             )}
+             {pendingVisitorRequests.map(request => (
+                <div key={request.id} className="bg-gradient-to-r from-brand-600/10 via-brand-600/5 to-transparent border border-brand-300 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-in fade-in duration-300">
+                   <div className="flex items-center gap-3.5 min-w-0">
+                      {request.photoUrl ? (
+                         <AuthedImg src={request.photoUrl} alt={request.visitorName} className="w-14 h-14 rounded-xl object-cover border border-brand-200 shrink-0" />
+                      ) : (
+                         <div className="w-12 h-12 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center shrink-0">
+                            <DoorOpen className="w-6 h-6" />
+                         </div>
+                      )}
+                      <div className="min-w-0">
+                         <span className="text-[10px] font-bold text-brand-800 bg-brand-100 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                            Visitor at the Gate
+                         </span>
+                         <h3 className="text-base font-bold text-gray-900 mt-0.5 truncate">
+                            {request.visitorName} {request.purpose ? `— ${request.purpose}` : ''}
+                         </h3>
+                         <p className="text-xs text-gray-600 mt-0.5">
+                            {request.visitorPhone ? `${request.visitorPhone} • ` : ''}Waiting for your approval to let them in.
+                         </p>
+                      </div>
+                   </div>
+
+                   <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                      <button
+                         onClick={() => handleRespond(request.id, 'Denied')}
+                         disabled={respondingId === request.id}
+                         className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                         <XCircle className="w-4 h-4" /> Deny
+                      </button>
+                      <button
+                         onClick={() => handleRespond(request.id, 'Approved')}
+                         disabled={respondingId === request.id}
+                         className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                         <CheckCircle2 className="w-4 h-4" /> Approve
+                      </button>
+                   </div>
+                </div>
+             ))}
+          </div>
+       )}
 
        {/* Maintenance Alert Callout if dues exist */}
        {totalPendingAmount > 0 && topPendingInvoice && (

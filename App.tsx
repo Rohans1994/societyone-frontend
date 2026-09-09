@@ -17,12 +17,17 @@ import { UserManagement } from './components/UserManagement';
 import { VendorManagement } from './components/VendorManagement';
 import { TendorManagement } from './components/TendorManagement';
 import { AmenitiesManager } from './components/AmenitiesManager';
+import { GateManagement } from './components/GateManagement';
+import { ResidentVisitors } from './components/ResidentVisitors';
 import { MyProfile } from './components/MyProfile';
 import { ResidentMaintenanceView } from './components/ResidentMaintenanceView';
-import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt } from './types';
+import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt, VisitorRequest } from './types';
 import { supabase } from './supabaseClient';
 import { onSessionExpired, markManualSignOut } from './authEvents';
 import { initializePushNotifications, unregisterPushNotifications } from './services/pushNotifications';
+import { initializeAppLifecycleRefresh } from './services/appLifecycle';
+import { initializeDeepLinks } from './services/deepLinks';
+import { connectRealtime, disconnectRealtime } from './services/realtime';
 import { 
   MOCK_SOCIETIES,
   MOCK_USERS,
@@ -64,6 +69,7 @@ const App: React.FC = () => {
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
   const [amcs, setAmcs] = useState<AMC[]>(MOCK_AMCS);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [visitorRequests, setVisitorRequests] = useState<VisitorRequest[]>([]);
 
   // Whether we've finished checking for an existing Supabase session on
   // mount (so we don't briefly flash the login screen before that check
@@ -72,6 +78,9 @@ const App: React.FC = () => {
 
   // Societies are needed pre-login (the Auth screen's society picker), so
   // they're fetched publicly and separately from everything else below.
+  // Deliberately a minimal field set (see backend routes/societies.ts) —
+  // does not include storageBucket, since that's only ever needed once
+  // actually authenticated (see fetchOwnSociety below).
   const fetchSocieties = useCallback(async () => {
     try {
       const res = await fetch('/api/societies');
@@ -87,6 +96,25 @@ const App: React.FC = () => {
   useEffect(() => {
     fetchSocieties();
   }, [fetchSocieties]);
+
+  // Fills in the fields the public /api/societies list above deliberately
+  // omits (currently just storageBucket, used for uploads throughout the
+  // admin UI) for the logged-in user's own society specifically — merged
+  // into the same `societies` array rather than kept separate, so the
+  // existing `activeSociety` lookup elsewhere just works unchanged.
+  const fetchOwnSociety = useCallback(async () => {
+    try {
+      const res = await fetch('/api/societies/me');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.id) {
+          setSocieties(prev => prev.map(s => (s.id === data.id ? { ...s, ...data } : s)));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load own society details:', err);
+    }
+  }, []);
 
   // Restore session on page load/refresh: if a Supabase session already
   // exists, fetch this account's profile and re-establish currentUser so a
@@ -148,7 +176,8 @@ const App: React.FC = () => {
         facilityBlocksRes,
         assetsRes,
         amcsRes,
-        receiptsRes
+        receiptsRes,
+        visitorRequestsRes
       ] = await Promise.all([
         fetch('/api/users').then(r => r.json()).catch(() => null),
         fetch('/api/vendors').then(r => r.json()).catch(() => null),
@@ -165,6 +194,7 @@ const App: React.FC = () => {
         fetch('/api/assets').then(r => r.json()).catch(() => null),
         fetch('/api/amc').then(r => r.json()).catch(() => null),
         fetch('/api/receipts').then(r => r.json()).catch(() => null),
+        fetch('/api/visitor-requests').then(r => r.json()).catch(() => null),
       ]);
 
       if (Array.isArray(usersRes)) {
@@ -184,6 +214,7 @@ const App: React.FC = () => {
       if (Array.isArray(assetsRes)) setAssets(assetsRes);
       if (Array.isArray(amcsRes)) setAmcs(amcsRes);
       if (Array.isArray(receiptsRes)) setReceipts(receiptsRes);
+      if (Array.isArray(visitorRequestsRes)) setVisitorRequests(visitorRequestsRes);
     } catch (err) {
       console.error('Failed to load remote data from database:', err);
     }
@@ -193,8 +224,9 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       fetchAllData();
+      fetchOwnSociety();
     }
-  }, [currentUser, fetchAllData]);
+  }, [currentUser, fetchAllData, fetchOwnSociety]);
 
   // When user changes, set the appropriate initial view
   useEffect(() => {
@@ -271,6 +303,10 @@ const App: React.FC = () => {
     return notices.filter(n => !n.societyId || n.societyId === currentSocietyId);
   }, [notices, currentSocietyId]);
 
+  const societyVisitorRequests = useMemo(() => {
+    return visitorRequests.filter(v => !v.societyId || v.societyId === currentSocietyId);
+  }, [visitorRequests, currentSocietyId]);
+
   const societyVendors = useMemo(() => {
     return vendors.filter(v => !v.societyId || v.societyId === currentSocietyId);
   }, [vendors, currentSocietyId]);
@@ -332,6 +368,11 @@ const App: React.FC = () => {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    // Without this, the dashboard renders wherever the window happened to
+    // be scrolled to on the landing/login page (often mid-page), instead of
+    // at the top — same fix for both admin and resident logins since they
+    // both go through this one function.
+    window.scrollTo(0, 0);
   };
 
   // Called by MyProfile after a successful self-service name/avatar update,
@@ -433,6 +474,7 @@ const App: React.FC = () => {
     // expired" modal (see authEvents.ts / supabaseClient.ts).
     markManualSignOut();
     unregisterPushNotifications().catch(() => {});
+    disconnectRealtime();
     supabase.auth.signOut().catch((err) => console.error('Error signing out:', err));
     setCurrentUser(null);
     setCurrentView('FACILITIES');
@@ -447,6 +489,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const unsubscribe = onSessionExpired(() => {
       unregisterPushNotifications().catch(() => {});
+      disconnectRealtime();
       supabase.auth.signOut().catch(() => {});
       setCurrentUser(null);
       setCurrentView('FACILITIES');
@@ -461,6 +504,65 @@ const App: React.FC = () => {
     if (currentUser) {
       initializePushNotifications().catch(() => {});
     }
+  }, [currentUser?.uid]);
+
+  // Refresh the session and re-fetch data every time the app returns to the
+  // foreground (e.g. opened via a tapped push notification) — see
+  // services/appLifecycle.ts for why both of those matter here.
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubscribe = initializeAppLifecycleRefresh(() => {
+      fetchAllData();
+    });
+    return unsubscribe;
+  }, [currentUser?.uid, fetchAllData]);
+
+  // Live gate/visitor updates while connected (complements, doesn't
+  // replace, the FCM push above — see services/realtime.ts). A new request
+  // updates the resident's/guard's screen instantly with no refresh needed;
+  // a response updates the guard's screen the same way.
+  useEffect(() => {
+    if (!currentUser) return;
+    let active = true;
+
+    connectRealtime().then((socket) => {
+      if (!active || !socket) return;
+      socket.on('visitor-request:new', (request: VisitorRequest) => {
+        setVisitorRequests(prev => [request, ...prev.filter(v => v.id !== request.id)]);
+      });
+      socket.on('visitor-request:updated', (request: VisitorRequest) => {
+        setVisitorRequests(prev => prev.map(v => (v.id === request.id ? request : v)));
+      });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser?.uid]);
+
+  // Handles the native Approve/Deny action buttons (and a plain tap) on the
+  // visitor-request notification — see services/deepLinks.ts and
+  // android/app/.../VisitorMessagingService.java. A decision here reuses
+  // the exact same authenticated handler the in-app banner buttons use;
+  // native code itself never touches auth or makes network calls.
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubscribe = initializeDeepLinks({
+      onVisitorRespond: (link) => {
+        setCurrentView('RESIDENT_DASHBOARD');
+        if (link.decision) {
+          handleRespondVisitorRequest(link.requestId, link.decision).catch((err) => {
+            // "Already responded" is an expected benign race (e.g. answered
+            // in-app already) — nothing more to do. Anything else is worth
+            // logging even though there's no good UI to surface it to here.
+            if (!String(err?.message || '').includes('already been')) {
+              console.error('[DeepLinks] Failed to respond to visitor request:', err);
+            }
+          });
+        }
+      }
+    });
+    return unsubscribe;
   }, [currentUser?.uid]);
 
   // User Management
@@ -689,6 +791,52 @@ const App: React.FC = () => {
       setNotices(prev => prev.filter(n => n.id !== id));
     } catch (err) {
       console.error('Error deleting notice:', err);
+    }
+  };
+
+  // Gate / Visitor Management — a guard (admin login, for now) logs a
+  // visitor against one specific resident; the resident approves/denies.
+  // Both actions re-throw on failure so the calling UI can surface the
+  // specific error (e.g. "already responded to"), matching handleBookSlot.
+  const handleCreateVisitorRequest = async (request: Omit<VisitorRequest, 'id' | 'status' | 'createdAt'>) => {
+    try {
+      const res = await fetch('/api/visitor-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...request, societyId: request.societyId || activeSociety?.id || 'soc-mtb32pfk' })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to create visitor request.');
+      }
+      const data = await res.json();
+      if (data.request) {
+        setVisitorRequests(prev => [data.request, ...prev]);
+      }
+    } catch (err) {
+      console.error('Error creating visitor request:', err);
+      throw err;
+    }
+  };
+
+  const handleRespondVisitorRequest = async (id: string, decision: 'Approved' | 'Denied') => {
+    try {
+      const res = await fetch(`/api/visitor-requests/${id}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to respond to visitor request.');
+      }
+      const data = await res.json();
+      if (data.request) {
+        setVisitorRequests(prev => prev.map(v => (v.id === id ? data.request : v)));
+      }
+    } catch (err) {
+      console.error('Error responding to visitor request:', err);
+      throw err;
     }
   };
 
@@ -1180,7 +1328,7 @@ const App: React.FC = () => {
             onBulkImportAssets={handleBulkImportAssets}
           />
         ) : (
-          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
+          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />
         );
       case 'RESIDENTS':
         return isAdminOrSuper ? (
@@ -1191,7 +1339,7 @@ const App: React.FC = () => {
             societyName={activeSociety?.name}
           />
         ) : (
-          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
+          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />
         );
       case 'FACILITIES':
         return (
@@ -1220,10 +1368,10 @@ const App: React.FC = () => {
             onRefreshData={fetchAllData}
           />
         ) : (
-          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
+          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />
         );
       case 'INVOICES_FULL':
-        return isAdminOrSuper ? <InvoiceHistory invoices={societyInvoices} onBack={() => setCurrentView('FINANCE')} onUpdateInvoice={handleUpdateInvoice} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
+        return isAdminOrSuper ? <InvoiceHistory invoices={societyInvoices} onBack={() => setCurrentView('FINANCE')} onUpdateInvoice={handleUpdateInvoice} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />;
       case 'HELPDESK':
         return <HelpDesk tickets={societyTickets} userRole={currentUser.role} currentUser={currentUser} onUpdateTicket={handleUpdateTicket} onAddTicket={handleAddTicket} />;
       case 'EVENTS':
@@ -1246,9 +1394,9 @@ const App: React.FC = () => {
       case 'FISHBOWL':
         return <FishBowl messages={societyFishbowl} currentUser={currentUser} onPostMessage={handlePostFishBowlMessage} onDeleteMessage={handleDeleteFishBowlMessage} />;
       case 'VENDORS':
-        return isAdminOrSuper ? <VendorManagement vendors={societyVendors} onAddVendor={handleAddVendor} onUpdateVendor={handleUpdateVendor} onDeleteVendor={handleDeleteVendor} onBulkImportVendors={handleBulkImportVendors} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
+        return isAdminOrSuper ? <VendorManagement vendors={societyVendors} onAddVendor={handleAddVendor} onUpdateVendor={handleUpdateVendor} onDeleteVendor={handleDeleteVendor} onBulkImportVendors={handleBulkImportVendors} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />;
       case 'TENDORS':
-        return isAdminOrSuper ? <TendorManagement vendors={societyVendors} tendors={societyTendors} storageBucket={activeSociety?.storageBucket} onAddTendor={handleAddTendor} onUpdateTendor={handleUpdateTendor} onDeleteTendor={handleDeleteTendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
+        return isAdminOrSuper ? <TendorManagement vendors={societyVendors} tendors={societyTendors} storageBucket={activeSociety?.storageBucket} onAddTendor={handleAddTendor} onUpdateTendor={handleUpdateTendor} onDeleteTendor={handleDeleteTendor} /> : <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />;
       case 'USER_MANAGEMENT':
         return isSuperAdmin ? (
           <UserManagement 
@@ -1264,10 +1412,41 @@ const App: React.FC = () => {
             onAddNotice={handleAddNotice}
           />
         ) : (
-          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />
+          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />
+        );
+      case 'SECURITY':
+        return isAdminOrSuper ? (
+          <GateManagement
+            visitorRequests={societyVisitorRequests}
+            residents={societyResidents}
+            storageBucket={activeSociety?.storageBucket}
+            societyId={currentSocietyId}
+            onCreateRequest={handleCreateVisitorRequest}
+          />
+        ) : (
+          <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />
+        );
+      case 'VISITORS':
+        return !isAdminOrSuper ? (
+          <ResidentVisitors visitorRequests={societyVisitorRequests} />
+        ) : (
+          <Dashboard 
+            user={currentUser} 
+            invoices={societyInvoices} 
+            tickets={societyTickets} 
+            amcs={societyAMCs} 
+            events={societyEvents} 
+            notices={societyNotices}
+            users={societyResidents}
+            bookings={societyBookings}
+            onApproveUser={handleApproveUser}
+            onConfirmBookingPayment={handleConfirmBookingPayment}
+            onCancelBooking={handleCancelBooking}
+            onNavigate={setCurrentView} 
+          />
         );
       default:
-        return <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} onNavigate={setCurrentView} />;
+        return <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />;
     }
   };
 

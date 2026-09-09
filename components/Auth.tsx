@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Role, User, Society } from '../types';
-import { Building2, Mail, Lock, User as UserIcon, Home, ArrowRight, Search, ChevronDown, Check, Sparkles, MapPin, Hash, Plus, AlertCircle, CheckCircle2, Phone, ShieldCheck, KeyRound, RefreshCw, Send } from 'lucide-react';
+import { Building2, Mail, Lock, User as UserIcon, Home, ArrowRight, Search, ChevronDown, Check, MapPin, Hash, Plus, AlertCircle, CheckCircle2, Phone, ShieldCheck, KeyRound, RefreshCw, Send } from 'lucide-react';
 import { LanguageSelector } from './LanguageSelector';
 import { useLanguage } from '../context/LanguageContext';
 import { supabase } from '../supabaseClient';
@@ -345,37 +345,6 @@ export const Auth: React.FC<AuthProps> = ({
     }
   };
 
-  const handleSelectDemo = (type: 'super' | 'admin' | 'resident') => {
-    setError('');
-    setIsLogin(true);
-
-    if (type === 'super') {
-      const soc = societies.find(s => s.id === 'soc-1') || societies[0];
-      if (soc) {
-        setSelectedSocietyId(soc.id);
-        setPincodeFilter(soc.pincode);
-      }
-      setEmail('super@society.com');
-      setPassword('password123');
-    } else if (type === 'admin') {
-      const soc = societies.find(s => s.id === 'soc-1') || societies[0];
-      if (soc) {
-        setSelectedSocietyId(soc.id);
-        setPincodeFilter(soc.pincode);
-      }
-      setEmail('admin@society.com');
-      setPassword('password123');
-    } else {
-      const soc = societies.find(s => s.id === 'soc-1') || societies[0];
-      if (soc) {
-        setSelectedSocietyId(soc.id);
-        setPincodeFilter(soc.pincode);
-      }
-      setEmail('resident@society.com');
-      setPassword('password123');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-6">
       <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-visible relative flex flex-col border border-gray-100 animate-in fade-in duration-300">
@@ -647,15 +616,9 @@ export const Auth: React.FC<AuthProps> = ({
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5 truncate">
-                                  <MapPin className="w-3 h-3 text-gray-400 shrink-0" />
-                                  {soc.address}, {soc.city} • <span className="font-mono font-semibold text-gray-700">{soc.pincode}</span>
+                                <p className="text-[11px] text-gray-500 mt-0.5 font-mono font-semibold">
+                                  {soc.pincode}
                                 </p>
-                                {soc.wings && soc.wings.length > 0 && (
-                                  <p className="text-[10px] text-gray-400 mt-0.5">
-                                    {soc.wings.length} {t('availableWings', 'wings')}: {soc.wings.join(', ')}
-                                  </p>
-                                )}
                               </div>
                               {soc.id === selectedSocietyId && (
                                 <Check className="w-4 h-4 text-brand-600 shrink-0" />
@@ -846,33 +809,6 @@ export const Auth: React.FC<AuthProps> = ({
                 {isLogin ? t('signInToSociety', 'Sign In to Society') : t('createResidentAccount', 'Create Resident Account')} <ArrowRight className="w-4 h-4" />
               </button>
             </form>
-
-            {/* Quick Demo Credentials */}
-            <div className="mt-6 pt-4 border-t border-gray-100">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-amber-500" /> {t('quickDemoLogins', 'Quick Demo Logins:')}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSelectDemo('super')}
-                  className="px-2.5 py-1.5 text-xs text-left bg-slate-50 hover:bg-brand-50 border border-gray-200 rounded-lg text-gray-700 transition cursor-pointer"
-                >
-                  <div className="font-semibold text-brand-700">👑 {t('superAdmin', 'Super Admin')}</div>
-                  <div className="text-[10px] text-gray-500 truncate">super@society.com</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectDemo('resident')}
-                  className="px-2.5 py-1.5 text-xs text-left bg-slate-50 hover:bg-emerald-50 border border-gray-200 rounded-lg text-gray-700 transition cursor-pointer"
-                >
-                  <div className="font-semibold text-emerald-700">👤 {t('residentUser', 'Resident User')}</div>
-                  <div className="text-[10px] text-gray-500 truncate">resident@society.com</div>
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>
