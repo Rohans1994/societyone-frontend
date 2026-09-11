@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { DoorOpen, LogOut, ShieldCheck, Sparkles, Copy, Check, X } from 'lucide-react';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { ResidentDashboard } from './components/ResidentDashboard';
@@ -75,6 +76,13 @@ const App: React.FC = () => {
   // mount (so we don't briefly flash the login screen before that check
   // resolves on a page refresh where the user was already signed in).
   const [sessionChecked, setSessionChecked] = useState(false);
+
+  // Shown after handleAddUser generates a temporary password (used by both
+  // User Management's "Add User" and Gate Management's "Add Guard") — a
+  // proper modal with a copy button, replacing a plain alert() that gave no
+  // way to actually copy the credentials.
+  const [newUserCredentials, setNewUserCredentials] = useState<{ name: string; email: string; password: string } | null>(null);
+  const [credentialsCopied, setCredentialsCopied] = useState(false);
 
   // Societies are needed pre-login (the Auth screen's society picker), so
   // they're fetched publicly and separately from everything else below.
@@ -606,7 +614,7 @@ const App: React.FC = () => {
       // temporary one — surface it so the admin can actually hand it to the
       // new user (otherwise the account would be created with no way to sign in).
       if (data?.generatedPassword) {
-        alert(`User created. Temporary password: ${data.generatedPassword}\n\nShare this with ${userToSave.name} — they should sign in and can reset it from their profile.`);
+        setNewUserCredentials({ name: userToSave.name, email: userToSave.email, password: data.generatedPassword });
       }
       setUsers(prev => {
         const filtered = prev.filter(u => u.uid !== userToSave.uid && u.email !== userToSave.email);
@@ -615,6 +623,14 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Error adding user to database:', err);
     }
+  };
+
+  const handleCopyCredentials = () => {
+    if (!newUserCredentials) return;
+    const text = `Name: ${newUserCredentials.name}\nEmail: ${newUserCredentials.email}\nPassword: ${newUserCredentials.password}`;
+    navigator.clipboard.writeText(text);
+    setCredentialsCopied(true);
+    setTimeout(() => setCredentialsCopied(false), 2500);
   };
 
   const handleBulkImportResidents = async (rows: Record<string, string>[]) => {
@@ -1422,6 +1438,9 @@ const App: React.FC = () => {
             storageBucket={activeSociety?.storageBucket}
             societyId={currentSocietyId}
             onCreateRequest={handleCreateVisitorRequest}
+            canManageGuards
+            onAddUser={handleAddUser}
+            onDeleteUser={handleDeleteUser}
           />
         ) : (
           <ResidentDashboard user={currentUser} events={societyEvents} notices={societyNotices} tickets={societyTickets} bookings={societyBookings} visitorRequests={societyVisitorRequests} onRespondVisitorRequest={handleRespondVisitorRequest} onNavigate={setCurrentView} />
@@ -1472,6 +1491,42 @@ const App: React.FC = () => {
     );
   }
 
+  // Guard is a single-purpose login — no sidebar, no other sections, not
+  // even My Profile. Bypasses the normal Layout/renderView entirely so
+  // there's no path to anything but Gate Management, matching the role's
+  // whole reason for existing (see types.ts's Role.Guard).
+  if (currentUser.role === Role.Guard) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-10">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center shrink-0">
+              <DoorOpen className="w-5 h-5 text-white" />
+            </div>
+            <span className="font-bold text-gray-900 text-sm sm:text-base tracking-tight">
+              {activeSociety?.name || 'Gate Management'}
+            </span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition"
+          >
+            <LogOut className="w-4 h-4" /> Sign Out
+          </button>
+        </header>
+        <main className="p-4 lg:p-8 max-w-7xl mx-auto">
+          <GateManagement
+            visitorRequests={societyVisitorRequests}
+            residents={societyResidents}
+            storageBucket={activeSociety?.storageBucket}
+            societyId={currentSocietyId}
+            onCreateRequest={handleCreateVisitorRequest}
+          />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <>
       <Layout 
@@ -1487,6 +1542,73 @@ const App: React.FC = () => {
         {renderView()}
       </Layout>
       <GeminiAssistant isOpen={isAIOpen} onClose={() => setIsAIOpen(false)} />
+
+      {/* Shown after creating a user with no password of their own (Add
+          User in User Management, Add Guard in Gate Management) — a proper
+          copyable credentials modal instead of a plain alert(). */}
+      {newUserCredentials && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-6 space-y-5">
+              <div className="text-center">
+                <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-inner">
+                  <ShieldCheck className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">Account Created</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Share these credentials with {newUserCredentials.name} — they should sign in and can change their password from their profile.
+                </p>
+              </div>
+
+              <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-6 opacity-10 pointer-events-none">
+                  <ShieldCheck className="w-24 h-24 text-white" />
+                </div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold text-brand-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" /> Login Credentials
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyCredentials}
+                    className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition font-medium"
+                  >
+                    {credentialsCopied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy All</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="space-y-3 font-mono text-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-white/10">
+                    <span className="text-xs text-gray-400">Email:</span>
+                    <span className="font-semibold text-brand-300">{newUserCredentials.email}</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between">
+                    <span className="text-xs text-gray-400">Password:</span>
+                    <span className="font-semibold text-emerald-300">{newUserCredentials.password}</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setNewUserCredentials(null)}
+                className="w-full px-5 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-sm transition flex items-center justify-center gap-2"
+              >
+                <X className="w-4 h-4" /> Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

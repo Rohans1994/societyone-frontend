@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Role, User, VisitorRequest } from '../types';
 import {
   DoorOpen, Plus, X, Search, Camera, Upload, Clock, CheckCircle2, XCircle,
-  Phone, User as UserIcon, Home, CalendarDays
+  Phone, User as UserIcon, Home, CalendarDays, ShieldPlus, Trash2, Mail
 } from 'lucide-react';
 import { AuthedImg } from './AuthedImg';
 
@@ -29,19 +29,28 @@ interface GateManagementProps {
   storageBucket?: string;
   societyId?: string;
   onCreateRequest: (request: Omit<VisitorRequest, 'id' | 'status' | 'createdAt'>) => Promise<void>;
+  // "Manage Guards" is admin-only — omitted entirely (including the button)
+  // when rendered for a logged-in Guard themselves, who can log visitors
+  // here but can't create/remove other guard accounts.
+  canManageGuards?: boolean;
+  onAddUser?: (user: User) => void;
+  onDeleteUser?: (uid: string) => void;
 }
 
-// Guard-facing screen (currently used via the admin login — no separate
-// Guard role exists yet) for logging visitors at the gate. This society
-// allows only one registered owner per flat, so picking a resident is
-// equivalent to picking "this flat". Live-updates via the socket connection
-// wired in App.tsx — no polling/refresh needed to see a resident's response.
+// Gate/visitor logging screen — used by both admins (SuperAdmin/WingAdmin)
+// and the dedicated Guard role. This society allows only one registered
+// owner per flat, so picking a resident is equivalent to picking "this
+// flat". Live-updates via the socket connection wired in App.tsx — no
+// polling/refresh needed to see a resident's response.
 export const GateManagement: React.FC<GateManagementProps> = ({
   visitorRequests,
   residents,
   storageBucket,
   societyId,
-  onCreateRequest
+  onCreateRequest,
+  canManageGuards,
+  onAddUser,
+  onDeleteUser
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [residentSearch, setResidentSearch] = useState('');
@@ -59,6 +68,49 @@ export const GateManagement: React.FC<GateManagementProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [selectedDate, setSelectedDate] = useState(todayDateString());
+
+  // --- Manage Guards (admin-only) ---
+  const [isGuardModalOpen, setIsGuardModalOpen] = useState(false);
+  const [guardName, setGuardName] = useState('');
+  const [guardEmail, setGuardEmail] = useState('');
+  const [guardPhone, setGuardPhone] = useState('');
+  const [guardFormError, setGuardFormError] = useState('');
+  const [deleteGuardConfirm, setDeleteGuardConfirm] = useState<{ uid: string; name: string } | null>(null);
+
+  const guards = useMemo(() => residents.filter(r => r.role === Role.Guard), [residents]);
+
+  const resetGuardForm = () => {
+    setGuardName('');
+    setGuardEmail('');
+    setGuardPhone('');
+    setGuardFormError('');
+  };
+
+  const handleAddGuardSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!guardName.trim() || !guardEmail.trim()) {
+      setGuardFormError('Name and email are required.');
+      return;
+    }
+    if (!onAddUser) return;
+    const guard: User = {
+      uid: `guard-${Math.random().toString(36).substring(2, 9)}`,
+      name: guardName.trim(),
+      email: guardEmail.trim(),
+      phone: guardPhone.trim(),
+      role: Role.Guard,
+      adminApproved: true,
+      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(guardName.trim())}&background=random`
+    };
+    onAddUser(guard);
+    resetGuardForm();
+  };
+
+  const handleConfirmDeleteGuard = () => {
+    if (!deleteGuardConfirm || !onDeleteUser) return;
+    onDeleteUser(deleteGuardConfirm.uid);
+    setDeleteGuardConfirm(null);
+  };
 
   const residentOptions = useMemo(() => {
     const q = residentSearch.trim().toLowerCase();
@@ -241,12 +293,22 @@ export const GateManagement: React.FC<GateManagementProps> = ({
             Log a visitor at the gate and send the resident a real-time approval request.
           </p>
         </div>
-        <button
-          onClick={handleOpenModal}
-          className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm shrink-0"
-        >
-          <Plus className="w-4 h-4" /> New Visitor
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {canManageGuards && (
+            <button
+              onClick={() => { resetGuardForm(); setIsGuardModalOpen(true); }}
+              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+            >
+              <ShieldPlus className="w-4 h-4" /> Manage Guards
+            </button>
+          )}
+          <button
+            onClick={handleOpenModal}
+            className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> New Visitor
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -436,6 +498,132 @@ export const GateManagement: React.FC<GateManagementProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Guards Modal (admin-only) */}
+      {canManageGuards && isGuardModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] overflow-y-auto">
+            <div className="bg-brand-600 p-4 flex justify-between items-center text-white sticky top-0">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <ShieldPlus className="w-5 h-5" /> Manage Guards
+              </h3>
+              <button onClick={() => setIsGuardModalOpen(false)} className="text-white hover:bg-brand-700 p-1 rounded-full">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-gray-700 uppercase">Existing Guards ({guards.length})</h4>
+                {guards.length > 0 ? (
+                  <div className="space-y-2">
+                    {guards.map(guard => (
+                      <div key={guard.uid} className="flex items-center justify-between p-2.5 border border-gray-200 rounded-lg">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{guard.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{guard.email}{guard.phone ? ` • ${guard.phone}` : ''}</p>
+                        </div>
+                        {onDeleteUser && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteGuardConfirm({ uid: guard.uid, name: guard.name })}
+                            className="text-gray-400 hover:text-red-600 p-1.5 shrink-0"
+                            title="Remove Guard"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">No guard accounts yet.</p>
+                )}
+              </div>
+
+              <form onSubmit={handleAddGuardSubmit} className="space-y-3 pt-4 border-t border-gray-100">
+                <h4 className="text-xs font-bold text-gray-700 uppercase">Add New Guard</h4>
+                {guardFormError && (
+                  <div className="p-2.5 bg-red-50 text-red-700 text-xs rounded-lg border border-red-200">{guardFormError}</div>
+                )}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={guardName}
+                    onChange={(e) => setGuardName(e.target.value)}
+                    placeholder="e.g. Ramesh Yadav"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1 flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5" /> Email *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={guardEmail}
+                    onChange={(e) => setGuardEmail(e.target.value)}
+                    placeholder="guard@example.com"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Phone (Optional)</label>
+                  <input
+                    type="tel"
+                    value={guardPhone}
+                    onChange={(e) => setGuardPhone(e.target.value)}
+                    placeholder="9876543210"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full px-5 py-2 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-sm"
+                >
+                  Add Guard
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Guard Confirmation Modal */}
+      {deleteGuardConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 text-center space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-gray-900">Remove this Guard?</h4>
+              <p className="text-xs text-gray-500 mt-1">
+                Are you sure you want to remove <strong>{deleteGuardConfirm.name}</strong>'s access? This cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteGuardConfirm(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteGuard}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+              >
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

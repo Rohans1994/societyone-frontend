@@ -2,7 +2,13 @@ export enum Role {
   SuperAdmin = 'SuperAdmin',
   WingAdmin = 'WingAdmin', // Treated as Admin
   Resident = 'Resident',
-  Vendor = 'Vendor'
+  Vendor = 'Vendor',
+  // Gate/visitor management only — created by an admin (see GateManagement's
+  // "Manage Guards"), scoped to one society, and restricted app-wide to
+  // seeing nothing but Gate Management (see App.tsx's render branch for
+  // Role.Guard, and requireRole('SuperAdmin', 'WingAdmin', 'Guard') on the
+  // backend's visitor-request routes).
+  Guard = 'Guard'
 }
 
 export interface Society {
