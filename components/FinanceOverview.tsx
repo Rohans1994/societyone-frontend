@@ -31,6 +31,7 @@ import { formatCurrency } from '../constants';
 import { InvoiceDetailModal } from './InvoiceDetailModal';
 import { ReceiptModal } from './ReceiptModal';
 import { jsPDF } from "jspdf";
+import { triggerApiError } from '../authEvents';
 
 interface FinanceOverviewProps {
   invoices: Invoice[];
@@ -523,6 +524,10 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
   // Handler for Submitting the Maintenance Plan by Admin
   const handleSetMaintenancePlan = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!societyId) {
+      triggerApiError('Unable to determine your society. Please refresh the page and try again.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       const totalAmount = Number(mPlanBaseRate);
@@ -547,7 +552,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
           breakdown: calculatedBreakdown,
           wing: mPlanWing,
           notes: `Set by Super Admin on ${new Date().toLocaleDateString()}`,
-          societyId: societyId || 'soc-mtb32pfk'
+          societyId
         })
       });
 

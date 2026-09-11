@@ -45,7 +45,12 @@ interface LandingPageProps {
   users: User[];
   onLogin: (user: User) => void;
   onRegister: (newUser: User) => void;
-  onSocietyCreated: (society: Society, adminUser: User, autoLogin: boolean) => void;
+  // Persists the society + admin account. Must throw/reject on failure —
+  // see CreateSocietyModal's prop comment for why.
+  onSocietyCreated: (society: Society, adminUser: User) => Promise<void>;
+  // Called only after the admin verifies their email OTP — the actual
+  // "log the new admin in" step (see CreateSocietyModal's prop comment).
+  onAdminVerified: (adminUser: User) => void;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
@@ -53,7 +58,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   users,
   onLogin,
   onRegister,
-  onSocietyCreated
+  onSocietyCreated,
+  onAdminVerified
 }) => {
   const { t } = useLanguage();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -97,11 +103,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setAuthMode(true);
   };
 
-  const handleSocietyCreatedInternal = (society: Society, adminUser: User, autoLogin: boolean) => {
-    onSocietyCreated(society, adminUser, autoLogin);
+  const handleSocietyCreatedInternal = (society: Society, adminUser: User) => {
+    // Just persists — the modal itself stays open afterwards to run the
+    // admin through email OTP verification before anything here reacts.
+    return onSocietyCreated(society, adminUser);
+  };
+
+  // Only reached once the admin has actually verified their email OTP
+  // inside CreateSocietyModal — safe to close the modal and either log
+  // them straight in or send them to the login screen now.
+  const handleAdminVerifiedInternal = (adminUser: User, autoLogin: boolean) => {
     setIsCreateModalOpen(false);
-    if (!autoLogin) {
-      setPreselectedSocietyId(society.id);
+    if (autoLogin) {
+      onAdminVerified(adminUser);
+    } else {
+      setPreselectedSocietyId(adminUser.societyId);
       setAuthMode(true);
     }
   };
@@ -122,6 +138,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
           onSocietyCreated={handleSocietyCreatedInternal}
+          onAdminVerified={handleAdminVerifiedInternal}
         />
       </>
     );
@@ -609,6 +626,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSocietyCreated={handleSocietyCreatedInternal}
+        onAdminVerified={handleAdminVerifiedInternal}
       />
     </div>
   );

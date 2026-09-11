@@ -16,6 +16,8 @@ export interface Society {
   name: string;
   address: string;
   city?: string;
+  state?: string;
+  country?: string;
   pincode: string;
   wings: string[];
   adminEmail: string;

@@ -8,6 +8,7 @@ import {
   AlertTriangle, Lock
 } from 'lucide-react';
 import { formatCurrency } from '../constants';
+import { triggerApiError } from '../authEvents';
 
 interface FacilityBookingProps {
   facilities: Facility[];
@@ -260,6 +261,12 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
       return;
     }
 
+    const societyId = selectedFacility.societyId || currentUser?.societyId;
+    if (!societyId) {
+      triggerApiError('Unable to determine your society. Please refresh the page and try again.');
+      return;
+    }
+
     setIsProcessingPayment(true);
     setBookingError('');
 
@@ -285,7 +292,7 @@ export const FacilityBooking: React.FC<FacilityBookingProps> = ({
         isPaid: false,
         amountPaid: selfDeclaredPaid ? (selectedFacility.price || 0) : 0,
         paymentRef: undefined,
-        societyId: selectedFacility.societyId || currentUser?.societyId || 'soc-mtb32pfk'
+        societyId
       };
 
       if (onBookSlot) {

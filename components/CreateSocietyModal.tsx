@@ -1,25 +1,46 @@
 import React, { useState } from 'react';
 import { Society, User, Role } from '../types';
-import { Building2, X, Plus, Trash2, ShieldCheck, CheckCircle2, Copy, Check, ArrowRight, MapPin, Hash, Sparkles, Phone } from 'lucide-react';
+import { Building2, X, Plus, Trash2, ShieldCheck, CheckCircle2, Copy, Check, ArrowRight, MapPin, Hash, Sparkles, Phone, KeyRound, RefreshCw, AlertCircle } from 'lucide-react';
+import { INDIAN_STATES } from '../data/indianStates';
+
+// Only India is supported today — fixed rather than a user-facing field
+// since there's nothing to choose, but still sent to the backend so every
+// society record has it (see routes/societies.ts).
+const DEFAULT_COUNTRY = 'India';
 
 interface CreateSocietyModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSocietyCreated: (society: Society, adminUser: User, autoLogin: boolean) => void;
+  // Persists the society + admin account (POST /api/societies, POST
+  // /api/users) — called once the admin has reviewed the credentials
+  // preview and clicked through. Must throw/reject on failure so the modal
+  // can show an error instead of proceeding to email verification for an
+  // account that doesn't actually exist yet.
+  onSocietyCreated: (society: Society, adminUser: User) => Promise<void>;
+  // Called only after the admin successfully verifies their email OTP —
+  // this is the actual "log the new admin in" step (deferred from the old
+  // immediate auto-login, since access shouldn't be granted before the
+  // email is confirmed). autoLogin mirrors which footer button was used to
+  // get here ("Log In As Admin Now" vs "Go to Login Page").
+  onAdminVerified: (adminUser: User, autoLogin: boolean) => void;
 }
 
 export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
   isOpen,
   onClose,
-  onSocietyCreated
+  onSocietyCreated,
+  onAdminVerified
 }) => {
-  // Step 1: Form, Step 2: Confirmation / Success
-  const [step, setStep] = useState<'form' | 'success'>('form');
+  // Step 1: Form, Step 2: Confirmation / Credentials preview, Step 3: Email
+  // OTP verification (only reachable after the account is actually
+  // persisted — see handleProceedToVerification).
+  const [step, setStep] = useState<'form' | 'success' | 'otp'>('form');
 
   // Society Basic Info
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [pincode, setPincode] = useState('');
   
   // Wings Configuration
@@ -37,6 +58,17 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [createdSociety, setCreatedSociety] = useState<Society | null>(null);
   const [createdAdmin, setCreatedAdmin] = useState<User | null>(null);
+  const [isPersisting, setIsPersisting] = useState(false);
+
+  // Email OTP Verification State (mirrors Auth.tsx's resident verification
+  // flow — same backend endpoints, same "Level 1" concept, just for the
+  // admin account created here instead of a self-registering resident).
+  const [pendingAutoLogin, setPendingAutoLogin] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [otpSuccess, setOtpSuccess] = useState('');
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [isResendingOtp, setIsResendingOtp] = useState(false);
 
   if (!isOpen) return null;
 
@@ -89,6 +121,10 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
       setError('Please enter the Society Address.');
       return;
     }
+    if (!state.trim()) {
+      setError('Please select the Society State.');
+      return;
+    }
     if (!pincode.trim() || pincode.trim().length < 4) {
       setError('Please enter a valid Pincode.');
       return;
@@ -108,12 +144,15 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
 
     const societyId = `soc-${Date.now().toString(36)}`;
     const adminUid = `admin-${Math.random().toString(36).substring(2, 9)}`;
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
     const newSociety: Society = {
       id: societyId,
       name: name.trim(),
       address: address.trim(),
       city: city.trim() || 'Metro Area',
+      state: state.trim(),
+      country: DEFAULT_COUNTRY,
       pincode: pincode.trim(),
       wings: wings.map(w => w.trim()),
       adminEmail: adminEmail.trim(),
@@ -134,7 +173,12 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
       societyName: newSociety.name,
       wing: wings[0] || 'Wing A',
       apartmentNo: 'Office-101',
-      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(adminName.trim() || name.trim())}&background=4f46e5&color=fff`
+      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(adminName.trim() || name.trim())}&background=4f46e5&color=fff`,
+      // adminApproved is deliberately left unset — the backend defaults it
+      // to true for non-Resident roles, same as before. Only email
+      // verification is being gated now, not approval status.
+      emailVerified: false,
+      verificationToken: generatedOtp
     };
 
     setCreatedSociety(newSociety);
@@ -150,11 +194,75 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleFinish = (autoLogin: boolean) => {
-    if (createdSociety && createdAdmin) {
-      onSocietyCreated(createdSociety, createdAdmin, autoLogin);
+  const handleProceedToVerification = async (autoLogin: boolean) => {
+    if (!createdSociety || !createdAdmin) return;
+    setError('');
+    setIsPersisting(true);
+    try {
+      await onSocietyCreated(createdSociety, createdAdmin);
+      setPendingAutoLogin(autoLogin);
+      setStep('otp');
+    } catch (err: any) {
+      setError(err.message || 'Failed to create the society. Please try again.');
+    } finally {
+      setIsPersisting(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createdAdmin) return;
+    setOtpError('');
+    setOtpSuccess('');
+
+    if (!otpCode.trim()) {
+      setOtpError('Please enter the 6-digit confirmation code.');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      const res = await fetch('/api/users/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: createdAdmin.uid, email: createdAdmin.email, token: otpCode.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpError(data.error || 'Verification failed. Please try again.');
+        return;
+      }
+      onAdminVerified({ ...createdAdmin, emailVerified: true }, pendingAutoLogin);
       handleReset();
       onClose();
+    } catch (err: any) {
+      setOtpError(err.message || 'Network error while verifying email.');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!createdAdmin) return;
+    setIsResendingOtp(true);
+    setOtpError('');
+    try {
+      const res = await fetch('/api/users/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: createdAdmin.uid, email: createdAdmin.email })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOtpSuccess(`New 6-digit verification code dispatched to ${createdAdmin.email}`);
+        setTimeout(() => setOtpSuccess(''), 4000);
+      } else {
+        setOtpError(data.error || 'Failed to resend code.');
+      }
+    } catch (err: any) {
+      setOtpError('Error resending verification code.');
+    } finally {
+      setIsResendingOtp(false);
     }
   };
 
@@ -163,6 +271,7 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
     setName('');
     setAddress('');
     setCity('');
+    setState('');
     setPincode('');
     setWingCount(3);
     setWings(['Wing A', 'Wing B', 'Wing C']);
@@ -173,6 +282,10 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
     setError('');
     setCreatedSociety(null);
     setCreatedAdmin(null);
+    setPendingAutoLogin(false);
+    setOtpCode('');
+    setOtpError('');
+    setOtpSuccess('');
   };
 
   return (
@@ -189,10 +302,14 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900">
-                {step === 'form' ? 'Register New Housing Society' : 'Society Registered Successfully!'}
+                {step === 'form' && 'Register New Housing Society'}
+                {step === 'success' && 'Society Registered Successfully!'}
+                {step === 'otp' && 'Verify Admin Email'}
               </h2>
               <p className="text-xs text-gray-500 font-medium">
-                {step === 'form' ? 'Configure society details, wings, and unique administrator credentials' : 'Your society workspace and admin access are live'}
+                {step === 'form' && 'Configure society details, wings, and unique administrator credentials'}
+                {step === 'success' && 'Your society workspace and admin access are live'}
+                {step === 'otp' && 'One last step before you can sign in'}
               </p>
             </div>
           </div>
@@ -271,17 +388,36 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                    City / Region
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Mumbai, Pune, Bengaluru"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 focus:bg-white focus:border-transparent outline-none transition"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                      City / Region
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Mumbai, Pune, Bengaluru"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 focus:bg-white focus:border-transparent outline-none transition"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                      State <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      required
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 focus:bg-white focus:border-transparent outline-none transition"
+                    >
+                      <option value="" disabled>Select a state...</option>
+                      {INDIAN_STATES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -422,7 +558,7 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
                 </div>
               </div>
             </form>
-          ) : (
+          ) : step === 'success' ? (
             /* Success Confirmation View */
             <div className="space-y-6 animate-in zoom-in-95 duration-200">
               <div className="text-center py-4">
@@ -501,6 +637,58 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
                 </span>
               </div>
             </div>
+          ) : (
+            /* Email OTP Verification View — same "Level 1" concept and
+               backend endpoints as the resident signup flow in Auth.tsx */
+            <div className="space-y-5 animate-in zoom-in-95 duration-200">
+              <div className="text-center">
+                <div className="w-14 h-14 bg-amber-50 border border-amber-200 rounded-full flex items-center justify-center mx-auto mb-2 text-amber-600">
+                  <KeyRound className="w-7 h-7" />
+                </div>
+                <p className="text-sm text-gray-600 max-w-sm mx-auto">
+                  We sent a 6-digit confirmation code to <span className="font-semibold text-gray-900">{createdAdmin?.email}</span>
+                </p>
+              </div>
+
+              {otpSuccess && (
+                <div className="bg-emerald-50 text-emerald-800 text-xs p-3 rounded-xl border border-emerald-200 flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="font-medium">{otpSuccess}</p>
+                </div>
+              )}
+              {otpError && (
+                <div className="bg-red-50 text-red-700 text-xs p-3 rounded-xl border border-red-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <p className="font-medium">{otpError}</p>
+                </div>
+              )}
+
+              <form id="otp-verification-form" onSubmit={handleVerifyOtp} className="space-y-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-600 uppercase tracking-wider mb-1">
+                    6-Digit OTP Code <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="e.g. 123456"
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-brand-500 outline-none transition"
+                    autoFocus
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={isResendingOtp}
+                  className="text-brand-600 hover:text-brand-800 text-xs font-medium flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isResendingOtp ? 'animate-spin' : ''}`} />
+                  {isResendingOtp ? 'Resending...' : 'Resend Code'}
+                </button>
+              </form>
+            </div>
           )}
         </div>
 
@@ -523,21 +711,42 @@ export const CreateSocietyModal: React.FC<CreateSocietyModalProps> = ({
                 Create Society & Generate Admin <ArrowRight className="w-4 h-4" />
               </button>
             </>
-          ) : (
+          ) : step === 'success' ? (
             <>
+              {error && <p className="text-xs text-red-600 mr-auto self-center">{error}</p>}
               <button
                 type="button"
-                onClick={() => handleFinish(false)}
-                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition"
+                disabled={isPersisting}
+                onClick={() => handleProceedToVerification(false)}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition disabled:opacity-50"
               >
                 Go to Login Page
               </button>
               <button
                 type="button"
-                onClick={() => handleFinish(true)}
-                className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold shadow-md shadow-brand-200 transition active:scale-[0.98] flex items-center gap-2"
+                disabled={isPersisting}
+                onClick={() => handleProceedToVerification(true)}
+                className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold shadow-md shadow-brand-200 transition active:scale-[0.98] flex items-center gap-2 disabled:opacity-50"
               >
-                Log In As Admin Now <ArrowRight className="w-4 h-4" />
+                {isPersisting ? 'Creating...' : 'Log In As Admin Now'} <ArrowRight className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => { handleReset(); onClose(); }}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-200 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="otp-verification-form"
+                disabled={isVerifyingOtp}
+                className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold shadow-md shadow-brand-200 transition active:scale-[0.98] flex items-center gap-2 disabled:opacity-50"
+              >
+                <ShieldCheck className="w-4 h-4" /> {isVerifyingOtp ? 'Verifying...' : 'Verify Email & Continue'}
               </button>
             </>
           )}

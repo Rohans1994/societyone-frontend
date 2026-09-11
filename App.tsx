@@ -24,7 +24,7 @@ import { MyProfile } from './components/MyProfile';
 import { ResidentMaintenanceView } from './components/ResidentMaintenanceView';
 import { ViewState, User, Role, Society, Invoice, Transaction, Event, Notice, Vendor, Ticket, FishBowlMessage, Tendor, Booking, Asset, AMC, Facility, FacilityBlock, Receipt, VisitorRequest } from './types';
 import { supabase } from './supabaseClient';
-import { onSessionExpired, markManualSignOut } from './authEvents';
+import { onSessionExpired, markManualSignOut, triggerApiError } from './authEvents';
 import { initializePushNotifications, unregisterPushNotifications } from './services/pushNotifications';
 import { initializeAppLifecycleRefresh } from './services/appLifecycle';
 import { initializeDeepLinks } from './services/deepLinks';
@@ -257,7 +257,26 @@ const App: React.FC = () => {
     );
   }, [societies, currentUser]);
 
-  const currentSocietyId = activeSociety?.id || 'soc-mtb32pfk';
+  // No hardcoded fallback society — if activeSociety can't be resolved,
+  // filtering just yields empty results rather than silently mixing this
+  // account's data with an arbitrary other society's.
+  const currentSocietyId = activeSociety?.id;
+
+  // Every create/update handler below must have a real societyId to send
+  // to the backend (which now rejects requests missing one — see
+  // routes/*.ts). Silently substituting a hardcoded default society was a
+  // data-integrity/security issue: a bug or race condition that left
+  // activeSociety unresolved could otherwise cause a record to be silently
+  // created under a completely different, unrelated society. This surfaces
+  // it as a visible error instead.
+  const requireSocietyId = useCallback((explicit?: string): string | undefined => {
+    const id = explicit || activeSociety?.id;
+    if (!id) {
+      triggerApiError('Unable to determine your society. Please refresh the page and try again.');
+      return undefined;
+    }
+    return id;
+  }, [activeSociety]);
 
   // Fetch residents from Supabase strictly for the active society
   const fetchSocietyResidents = useCallback(async (socId: string) => {
@@ -392,14 +411,20 @@ const App: React.FC = () => {
   };
 
   const handleRegister = async (newUser: User) => {
+    // newUser.societyId is set by Auth.tsx from the society the visitor
+    // actually picked on the registration form — this should always be
+    // present already; there's no logged-in activeSociety to sensibly fall
+    // back to during a not-yet-authenticated signup.
+    const societyId = requireSocietyId(newUser.societyId);
+    if (!societyId) return;
     const isApproved = newUser.adminApproved !== undefined ? newUser.adminApproved : (newUser.role === Role.Resident ? false : true);
     const isEmailVerified = newUser.emailVerified !== undefined ? newUser.emailVerified : (newUser.role === Role.Resident ? false : true);
     const userToSave: User = {
       ...newUser,
       adminApproved: isApproved,
       emailVerified: isEmailVerified,
-      societyId: newUser.societyId || activeSociety?.id || 'soc-mtb32pfk',
-      societyName: newUser.societyName || activeSociety?.name || 'Arkade Earth'
+      societyId,
+      societyName: newUser.societyName || activeSociety?.name
     };
     try {
       await fetch('/api/users', {
@@ -422,7 +447,13 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSocietyCreated = async (newSociety: Society, adminUser: User, autoLogin: boolean) => {
+  // Persists the society + admin account only — does NOT log anyone in.
+  // The admin now has to verify their email OTP first (see
+  // CreateSocietyModal), and handleAdminVerified below is what actually
+  // logs them in once that succeeds. Throws on admin-account creation
+  // failure so the modal can show an error instead of silently proceeding
+  // to "check your email" for an account that doesn't exist.
+  const handleSocietyCreated = async (newSociety: Society, adminUser: User) => {
     // 1. Persist society in Supabase PostgreSQL — this also creates the
     // society's dedicated Storage bucket server-side and returns its name.
     let storageBucket: string | undefined;
@@ -454,26 +485,47 @@ const App: React.FC = () => {
     };
 
     // 4. Persist admin user in Supabase PostgreSQL
-    try {
-      await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(finalAdminUser)
-      });
-    } catch (err) {
-      console.error('Error persisting admin user in Supabase database:', err);
+    const res = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(finalAdminUser)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to create the admin account.');
     }
 
     setUsers(prev => {
       const filtered = prev.filter(u => u.uid !== finalAdminUser.uid && u.email !== finalAdminUser.email);
       return [...filtered, finalAdminUser];
     });
+  };
 
-    // 5. Auto login if requested
-    if (autoLogin) {
-      setCurrentUser(finalAdminUser);
-      setCurrentView('DASHBOARD');
+  // Only reached after the admin has actually verified their email OTP
+  // (see CreateSocietyModal + LandingPage's onAdminVerified wiring) — this
+  // is the actual "log the new admin in" step, deferred from the old
+  // immediate auto-login so access isn't granted before email is confirmed.
+  //
+  // Must actually sign in via Supabase here (same call the normal login
+  // screen makes) rather than just setting currentUser directly — setting
+  // currentUser alone made the dashboard render, but with no real Supabase
+  // session there was no token for apiClient.ts to attach to any request,
+  // so every single API call 401'd and the app was left stuck loading.
+  const handleAdminVerified = async (adminUser: User) => {
+    if (!adminUser.email || !adminUser.password) {
+      triggerApiError('Verified, but automatic sign-in failed. Please sign in manually with your new credentials.');
+      return;
     }
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: adminUser.email,
+      password: adminUser.password
+    });
+    if (authError) {
+      triggerApiError('Verified, but automatic sign-in failed. Please sign in manually with your new credentials.');
+      return;
+    }
+    setCurrentUser(adminUser);
+    setCurrentView('DASHBOARD');
   };
 
   const handleLogout = () => {
@@ -597,11 +649,13 @@ const App: React.FC = () => {
   };
 
   const handleAddUser = async (user: User) => {
+    const societyId = requireSocietyId(user.societyId || currentUser?.societyId);
+    if (!societyId) return;
     const userToSave: User = {
       ...user,
       adminApproved: user.adminApproved !== undefined ? user.adminApproved : true,
-      societyId: user.societyId || currentUser?.societyId || activeSociety?.id || 'soc-mtb32pfk',
-      societyName: user.societyName || currentUser?.societyName || activeSociety?.name || 'Arkade Earth'
+      societyId,
+      societyName: user.societyName || currentUser?.societyName || activeSociety?.name
     };
     try {
       const res = await fetch('/api/users', {
@@ -669,9 +723,11 @@ const App: React.FC = () => {
 
   // Finance Management
   const handleCreateInvoice = async (invoice: Invoice) => {
+    const societyId = requireSocietyId(invoice.societyId);
+    if (!societyId) return;
     const invoiceToSave: Invoice = {
       ...invoice,
-      societyId: invoice.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/invoices', {
@@ -697,16 +753,19 @@ const App: React.FC = () => {
 
       // If status changed to Paid, add to transaction ledger
       if (updatedInvoice.status === 'Paid' && oldInvoice?.status !== 'Paid') {
-          const tx: Transaction = {
-              id: `TX-INV-${updatedInvoice.id}-${Date.now()}`,
-              title: `Invoice Paid: ${updatedInvoice.residentName}${updatedInvoice.description ? ` - ${updatedInvoice.description}` : ''}`,
-              amount: updatedInvoice.amount,
-              type: 'Income',
-              category: 'Invoice',
-              date: new Date().toISOString().split('T')[0],
-              societyId: updatedInvoice.societyId || activeSociety?.id || 'soc-mtb32pfk'
-          };
-          handleAddTransaction(tx);
+          const societyId = requireSocietyId(updatedInvoice.societyId);
+          if (societyId) {
+            const tx: Transaction = {
+                id: `TX-INV-${updatedInvoice.id}-${Date.now()}`,
+                title: `Invoice Paid: ${updatedInvoice.residentName}${updatedInvoice.description ? ` - ${updatedInvoice.description}` : ''}`,
+                amount: updatedInvoice.amount,
+                type: 'Income',
+                category: 'Invoice',
+                date: new Date().toISOString().split('T')[0],
+                societyId
+            };
+            handleAddTransaction(tx);
+          }
       }
     } catch (err) {
       console.error('Error updating invoice:', err);
@@ -714,9 +773,11 @@ const App: React.FC = () => {
   };
 
   const handleAddTransaction = async (transaction: Transaction) => {
+    const societyId = requireSocietyId(transaction.societyId);
+    if (!societyId) return;
     const txToSave: Transaction = {
       ...transaction,
-      societyId: transaction.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/transactions', {
@@ -732,9 +793,11 @@ const App: React.FC = () => {
 
   // Event Management
   const handleAddEvent = async (event: Event) => {
+    const societyId = requireSocietyId(event.societyId);
+    if (!societyId) return;
     const eventToSave: Event = {
       ...event,
-      societyId: event.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/events', {
@@ -772,9 +835,11 @@ const App: React.FC = () => {
 
   // Notice Management
   const handleAddNotice = async (notice: Notice) => {
+    const societyId = requireSocietyId(notice.societyId);
+    if (!societyId) return;
     const noticeToSave: Notice = {
       ...notice,
-      societyId: notice.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/notices', {
@@ -815,11 +880,19 @@ const App: React.FC = () => {
   // Both actions re-throw on failure so the calling UI can surface the
   // specific error (e.g. "already responded to"), matching handleBookSlot.
   const handleCreateVisitorRequest = async (request: Omit<VisitorRequest, 'id' | 'status' | 'createdAt'>) => {
+    const societyId = requireSocietyId(request.societyId);
+    if (!societyId) {
+      // requireSocietyId already showed the popup — still throw so
+      // GateManagement's own form-submit handler doesn't treat this as a
+      // success (it awaits this promise and closes/resets the form only if
+      // it resolves without throwing).
+      throw new Error('Unable to determine your society.');
+    }
     try {
       const res = await fetch('/api/visitor-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...request, societyId: request.societyId || activeSociety?.id || 'soc-mtb32pfk' })
+        body: JSON.stringify({ ...request, societyId })
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -858,9 +931,11 @@ const App: React.FC = () => {
 
   // Vendor Management
   const handleAddVendor = async (vendor: Vendor) => {
+    const societyId = requireSocietyId(vendor.societyId);
+    if (!societyId) return;
     const vendorToSave: Vendor = {
       ...vendor,
-      societyId: vendor.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/vendors', {
@@ -922,9 +997,11 @@ const App: React.FC = () => {
 
   // Tendor Management handlers
   const handleAddTendor = async (newTendor: Tendor) => {
+    const societyId = requireSocietyId(newTendor.societyId);
+    if (!societyId) return;
     const tendorToSave: Tendor = {
       ...newTendor,
-      societyId: newTendor.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/tendors', {
@@ -975,9 +1052,11 @@ const App: React.FC = () => {
   };
 
   const handleAddTicket = async (newTicket: Ticket) => {
+    const societyId = requireSocietyId(newTicket.societyId);
+    if (!societyId) return;
     const ticketToSave: Ticket = {
       ...newTicket,
-      societyId: newTicket.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/tickets', {
@@ -993,9 +1072,11 @@ const App: React.FC = () => {
 
   // Asset and AMC persistence handlers
   const handleAddAsset = async (newAsset: Asset) => {
+    const societyId = requireSocietyId(newAsset.societyId);
+    if (!societyId) return;
     const assetToSave: Asset = {
       ...newAsset,
-      societyId: newAsset.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/assets', {
@@ -1047,9 +1128,11 @@ const App: React.FC = () => {
   };
 
   const handleAddAMC = async (newAMC: AMC) => {
+    const societyId = requireSocietyId(newAMC.societyId);
+    if (!societyId) return;
     const amcToSave: AMC = {
       ...newAMC,
-      societyId: newAMC.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/amc', {
@@ -1084,6 +1167,8 @@ const App: React.FC = () => {
   // Fish Bowl Management
   const handlePostFishBowlMessage = async (text: string, replyToId?: string) => {
     if (!currentUser) return;
+    const societyId = requireSocietyId();
+    if (!societyId) return;
     const newMessage: FishBowlMessage = {
       id: `m-${Date.now()}`,
       text,
@@ -1093,7 +1178,7 @@ const App: React.FC = () => {
       wing: currentUser.wing || '?',
       apartmentNo: currentUser.apartmentNo || '?',
       replyToId: replyToId,
-      societyId: activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       await fetch('/api/fishbowl', {
@@ -1120,9 +1205,11 @@ const App: React.FC = () => {
 
   // Amenities / Facilities Management
   const handleAddFacility = async (newFacility: Facility) => {
+    const societyId = requireSocietyId();
+    if (!societyId) return;
     const facilityToSave: Facility = {
       ...newFacility,
-      societyId: activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       const res = await fetch('/api/facilities', {
@@ -1166,9 +1253,11 @@ const App: React.FC = () => {
 
   // Facility Block / Maintenance Handlers
   const handleAddBlock = async (newBlock: FacilityBlock) => {
+    const societyId = requireSocietyId(newBlock.societyId);
+    if (!societyId) return;
     const blockToSave: FacilityBlock = {
       ...newBlock,
-      societyId: newBlock.societyId || activeSociety?.id || 'soc-mtb32pfk'
+      societyId
     };
     try {
       const res = await fetch('/api/facility-blocks', {
@@ -1487,6 +1576,7 @@ const App: React.FC = () => {
         onLogin={handleLogin} 
         onRegister={handleRegister} 
         onSocietyCreated={handleSocietyCreated} 
+        onAdminVerified={handleAdminVerified}
       />
     );
   }
