@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Notice } from '../types';
-import { BellRing, X, Paperclip, Upload, FileText, User } from 'lucide-react';
+import { BellRing, X, Paperclip, Upload, FileText, User, Mail } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { AuthedImg } from './AuthedImg';
 
@@ -25,7 +25,9 @@ export interface NoticeModalLockedTarget {
 interface NoticeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (notice: Notice) => void;
+  // Second param is true only when the admin checked "Also send via
+  // email" — never true for an edit (that checkbox isn't shown then).
+  onSubmit: (notice: Notice, sendEmail: boolean) => void;
   editingNotice?: Notice | null;
   storageBucket?: string;
   // When set, this notice is locked to one specific resident (shown as a
@@ -66,6 +68,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachmentUploadError, setAttachmentUploadError] = useState('');
+  const [sendEmail, setSendEmail] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -97,6 +100,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
       return '';
     });
     setAttachmentUploadError('');
+    setSendEmail(false);
   }, [isOpen, editingNotice]);
 
   // Just holds the file + a local preview — nothing is uploaded yet. The
@@ -156,7 +160,7 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
         attachmentUrl: attachmentUrl || '',
         targetUid: lockedTarget?.uid || '',
         targetUserName: lockedTarget?.name || ''
-      });
+      }, !editingNotice && sendEmail);
     } finally {
       setIsSubmitting(false);
     }
@@ -323,6 +327,23 @@ export const NoticeModal: React.FC<NoticeModalProps> = ({
               <p className="text-[11px] text-red-600 mt-1">{attachmentUploadError}</p>
             )}
           </div>
+
+          {!isEditing && (
+            <label className="flex items-center gap-2.5 p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sendEmail}
+                onChange={(e) => setSendEmail(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <Mail className="w-4 h-4 text-gray-500" />
+              <span className="text-sm text-gray-700">
+                {lockedTarget
+                  ? `Also email this notice to ${lockedTarget.name}`
+                  : 'Also email this notice to all residents'}
+              </span>
+            </label>
+          )}
 
           <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
             <button

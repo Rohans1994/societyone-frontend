@@ -16,7 +16,7 @@ interface UserManagementProps {
   onAddUser: (user: User) => void;
   onApproveUser?: (uid: string) => void;
   onBulkImportResidents?: (rows: Record<string, string>[]) => Promise<BulkImportSummary>;
-  onAddNotice?: (notice: Notice) => void;
+  onAddNotice?: (notice: Notice, sendEmail?: boolean) => void;
 }
 
 export const UserManagement: React.FC<UserManagementProps> = ({ 
@@ -513,8 +513,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         <NoticeModal
           isOpen={Boolean(noticeTargetUser)}
           onClose={() => setNoticeTargetUser(null)}
-          onSubmit={(notice) => {
-            onAddNotice(notice);
+          onSubmit={(notice, sendEmail) => {
+            onAddNotice(notice, sendEmail);
             setNoticeTargetUser(null);
           }}
           storageBucket={storageBucket}

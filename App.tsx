@@ -792,7 +792,7 @@ const App: React.FC = () => {
   };
 
   // Event Management
-  const handleAddEvent = async (event: Event) => {
+  const handleAddEvent = async (event: Event, sendEmail?: boolean) => {
     const societyId = requireSocietyId(event.societyId);
     if (!societyId) return;
     const eventToSave: Event = {
@@ -803,7 +803,7 @@ const App: React.FC = () => {
       await fetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eventToSave)
+        body: JSON.stringify({ ...eventToSave, sendEmail: Boolean(sendEmail) })
       });
       setEvents(prev => [eventToSave, ...prev]);
     } catch (err) {
@@ -834,7 +834,7 @@ const App: React.FC = () => {
   };
 
   // Notice Management
-  const handleAddNotice = async (notice: Notice) => {
+  const handleAddNotice = async (notice: Notice, sendEmail?: boolean) => {
     const societyId = requireSocietyId(notice.societyId);
     if (!societyId) return;
     const noticeToSave: Notice = {
@@ -845,7 +845,7 @@ const App: React.FC = () => {
       await fetch('/api/notices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(noticeToSave)
+        body: JSON.stringify({ ...noticeToSave, sendEmail: Boolean(sendEmail) })
       });
       setNotices(prev => [noticeToSave, ...prev]);
     } catch (err) {

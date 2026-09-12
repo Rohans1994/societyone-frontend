@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Event, Notice, Role, User as UserType } from '../types';
-import { Calendar, MapPin, Clock, Plus, X, Edit2, Trash2, User, BellRing, AlertTriangle, Megaphone, Shield, Lock, FileText } from 'lucide-react';
+import { Calendar, MapPin, Clock, Plus, X, Edit2, Trash2, User, BellRing, AlertTriangle, Megaphone, Shield, Lock, FileText, Mail } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { NoticeModal } from './NoticeModal';
 import { AuthedImg } from './AuthedImg';
@@ -12,10 +12,10 @@ interface EventsProps {
   currentUser?: UserType | null;
   societyName?: string;
   storageBucket?: string;
-  onAddEvent: (event: Event) => void;
+  onAddEvent: (event: Event, sendEmail?: boolean) => void;
   onUpdateEvent: (event: Event) => void;
   onDeleteEvent: (id: string) => void;
-  onAddNotice: (notice: Notice) => void;
+  onAddNotice: (notice: Notice, sendEmail?: boolean) => void;
   onUpdateNotice: (notice: Notice) => void;
   onDeleteNotice: (id: string) => void;
 }
@@ -48,6 +48,7 @@ export const Events: React.FC<EventsProps> = ({
     description: '',
     organizer: ''
   });
+  const [sendEventEmail, setSendEventEmail] = useState(false);
 
   // Notice Modal State
   const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
@@ -85,6 +86,7 @@ export const Events: React.FC<EventsProps> = ({
         organizer: 'Cultural Committee' 
       });
     }
+    setSendEventEmail(false);
     setIsEventModalOpen(true);
   };
 
@@ -99,7 +101,7 @@ export const Events: React.FC<EventsProps> = ({
       onAddEvent({
         id: `evt-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
         ...eventForm
-      });
+      }, sendEventEmail);
     }
     setIsEventModalOpen(false);
   };
@@ -109,11 +111,11 @@ export const Events: React.FC<EventsProps> = ({
     setIsNoticeModalOpen(true);
   };
 
-  const handleNoticeSubmit = (notice: Notice) => {
+  const handleNoticeSubmit = (notice: Notice, sendEmail: boolean) => {
     if (editingNotice) {
       onUpdateNotice(notice);
     } else {
-      onAddNotice(notice);
+      onAddNotice(notice, sendEmail);
     }
     setIsNoticeModalOpen(false);
   };
@@ -573,6 +575,19 @@ export const Events: React.FC<EventsProps> = ({
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none"
                 />
               </div>
+
+              {!editingEventId && (
+                <label className="flex items-center gap-2.5 p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={sendEventEmail}
+                    onChange={(e) => setSendEventEmail(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  <Mail className="w-4 h-4 text-gray-500" />
+                  <span className="text-sm text-gray-700">Also email this event to all residents</span>
+                </label>
+              )}
 
               <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
                 <button
